@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './supabase';
-import { COUNTRY_NAMES, countryFlag } from './countries';
+import { COUNTRY_NAMES, countryCode } from './countries';
 import {
   countriesOf,
   dateRange,
@@ -21,16 +21,16 @@ import {
    ========================================================================== */
 
 const ICON_PATHS = {
-  food: 'M4 2v7a2 2 0 0 0 4 0V2M6 9v13M13 2c-1 0-2 1-2 3v4h4V5c0-2-1-3-2-3ZM13 9v13',
-  drink: 'M4 4h16l-8 9v7M8 20h8',
-  plane: 'M2 13l20-7-4 8 4 8-20-7',
-  route: 'M6 3v13a4 4 0 0 0 4 4h8M14 16l4 4-4 4',
-  stay: 'M2 18v-5h20v5M2 13V8m20 5V9a2 2 0 0 0-2-2h-6v6M6 9h3',
-  pin: 'M12 22s7-6.4 7-12a7 7 0 1 0-14 0c0 5.6 7 12 7 12Z',
-  dot: 'M12 10a2 2 0 1 0 .01 0',
+  food: 'M7 3v18M5 3v5a2 2 0 0 0 4 0V3M17 3v18M17 3c2.2 1 2.2 5.5 0 6.5',
+  drink: 'M4 5h16l-8 9v5M8.5 19h7',
+  plane: 'M3 12l18-6.5-3.2 6.5 3.2 6.5L3 12Z',
+  route: 'M7 4v11a4 4 0 0 0 4 4h6M14 16l3.5 3-3.5 3',
+  stay: 'M3 18v-5h18v5M3 13V8m18 5v-3a1.5 1.5 0 0 0-1.5-1.5H12V13M7 9.5h2.5',
+  pin: 'M12 21.5S18 15.6 18 10.5a6 6 0 1 0-12 0c0 5.1 6 11 6 11Z',
+  dot: 'M12 11.2a1 1 0 1 0 .01 0',
 };
 
-function Icon({ name, size = 13 }) {
+function Icon({ name, size = 14 }) {
   const d = ICON_PATHS[name] || ICON_PATHS.pin;
   const filled = name === 'pin';
   return (
@@ -40,14 +40,14 @@ function Icon({ name, size = 13 }) {
       height={size}
       fill="none"
       stroke="currentColor"
-      strokeWidth={filled ? 1.6 : 1.8}
+      strokeWidth={1.7}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
       style={{ flexShrink: 0 }}
     >
       <path d={d} />
-      {name === 'pin' && <circle cx="12" cy="10" r="2.4" />}
+      {name === 'pin' && <circle cx="12" cy="10.4" r="2.2" />}
     </svg>
   );
 }
@@ -104,13 +104,123 @@ function Field({ label, children }) {
   );
 }
 
-function Flags({ trip }) {
-  const flags = countriesOf(trip).map(countryFlag).filter(Boolean);
-  if (!flags.length) return null;
+/**
+ * Emoji flags don't render on Windows or most desktop Chrome installs, so
+ * these are images keyed off the ISO code instead.
+ */
+function Flag({ country, size = 18 }) {
+  const code = countryCode(country);
+  if (!code) return null;
   return (
-    <span className="shrink-0" style={{ fontSize: '15px', letterSpacing: '1px' }} aria-hidden="true">
-      {flags.join('')}
+    <img
+      src={`https://flagcdn.com/w40/${code.toLowerCase()}.png`}
+      alt={country}
+      title={country}
+      width={size}
+      height={Math.round((size * 3) / 4)}
+      loading="lazy"
+      style={{ borderRadius: '2px', display: 'block', border: '1px solid var(--navy-10)' }}
+      onError={(e) => {
+        e.currentTarget.style.display = 'none';
+      }}
+    />
+  );
+}
+
+function Flags({ trip, size = 18 }) {
+  const list = countriesOf(trip);
+  if (!list.length) return null;
+  return (
+    <span className="flex items-center gap-1 shrink-0">
+      {list.map((c) => (
+        <Flag key={c} country={c} size={size} />
+      ))}
     </span>
+  );
+}
+
+/** Companions are stored as one comma-separated string, edited as chips. */
+function People({ value, onSave }) {
+  const list = (value || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const [draft, setDraft] = useState('');
+  const [open, setOpen] = useState(false);
+
+  function commit(next) {
+    onSave(next.join(', '));
+  }
+
+  function add() {
+    const name = draft.trim().replace(/,$/, '');
+    if (!name) return;
+    if (list.some((p) => p.toLowerCase() === name.toLowerCase())) {
+      setDraft('');
+      return;
+    }
+    commit([...list, name]);
+    setDraft('');
+  }
+
+  if (!open && list.length === 0) {
+    return (
+      <button onClick={() => setOpen(true)} className="hub-faint text-xs underline">
+        + Add who you went with
+      </button>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="hub-eyebrow mr-1">With</span>
+        {list.map((p) => (
+          <span
+            key={p}
+            className="inline-flex items-center gap-1.5 px-2 py-0.5 text-xs rounded-sm"
+            style={{ backgroundColor: 'var(--navy-10)' }}
+          >
+            {p}
+            <button
+              onClick={() => commit(list.filter((x) => x !== p))}
+              aria-label={`Remove ${p}`}
+              className="hub-faint"
+              style={{ lineHeight: 1 }}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        {!open && (
+          <button onClick={() => setOpen(true)} className="hub-faint text-xs underline ml-1">
+            + add
+          </button>
+        )}
+      </div>
+
+      {open && (
+        <div className="flex items-center gap-2 mt-2">
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ',') {
+                e.preventDefault();
+                add();
+              }
+            }}
+            placeholder="Name, then Enter"
+            autoFocus
+            className="hub-input flex-1 px-2 py-1 text-sm"
+          />
+          <Button onClick={add}>Add</Button>
+          <Button variant="ghost" onClick={() => setOpen(false)}>
+            Done
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -262,8 +372,10 @@ function ItemRow({ item, city, depth = 0 }) {
    Day editor
    ========================================================================== */
 
-function DayEditor({ day, items, onSave, onCancel }) {
+function DayEditor({ day, items, onSave, onCancel, knownCities }) {
   const [text, setText] = useState(() => itemsToText(items) || '- ');
+  const [city, setCity] = useState(day.city || '');
+  const [stay, setStay] = useState(day.stay || '');
   const [saving, setSaving] = useState(false);
   const ref = useRef(null);
 
@@ -330,13 +442,13 @@ function DayEditor({ day, items, onSave, onCancel }) {
 
   async function save() {
     setSaving(true);
-    await onSave(parseBullets(text));
+    await onSave(parseBullets(text), { city: city.trim() || null, stay: stay.trim() || null });
     setSaving(false);
   }
 
   return (
     <div className="hub-card p-3 my-2">
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-3">
         <span className="hub-eyebrow">Editing {dayHeading(day.date) || day.label}</span>
         <div className="flex gap-1">
           <button
@@ -358,6 +470,26 @@ function DayEditor({ day, items, onSave, onCancel }) {
         </div>
       </div>
 
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <Field label="Where">
+          <input
+            value={city}
+            onChange={(e) => setCity(e.target.value)}
+            list="hub-cities"
+            placeholder="San Sebastián"
+            className="hub-input w-full px-2 py-1.5 text-sm"
+          />
+        </Field>
+        <Field label="Staying at">
+          <input
+            value={stay}
+            onChange={(e) => setStay(e.target.value)}
+            placeholder="Hotel María Cristina"
+            className="hub-input w-full px-2 py-1.5 text-sm"
+          />
+        </Field>
+      </div>
+
       <textarea
         ref={ref}
         value={text}
@@ -370,7 +502,8 @@ function DayEditor({ day, items, onSave, onCancel }) {
       />
 
       <p className="hub-faint text-xs mt-2 leading-relaxed">
-        Enter starts the next bullet, Tab nests it. Time after a comma
+        Bullets are things you did — where you were and where you stayed go in the
+        fields above. Enter starts the next bullet, Tab nests it. Time after a comma
         (<span className="italic">Dinner @ Kink, 8.30PM</span>), comment after a dash
         (<span className="italic">- great, cheap</span>).
       </p>
@@ -391,13 +524,11 @@ function DayEditor({ day, items, onSave, onCancel }) {
    Trip detail
    ========================================================================== */
 
-function TripDetail({ trip, onBack, onReload, userId }) {
+function TripDetail({ trip, onBack, onReload, userId, knownCities }) {
   const [editingDay, setEditingDay] = useState(null);
   const [addingDay, setAddingDay] = useState(false);
   const [newDayDate, setNewDayDate] = useState(trip.end_date || trip.start_date);
   const [showNotes, setShowNotes] = useState(false);
-  const [editingWho, setEditingWho] = useState(false);
-  const [who, setWho] = useState(trip.companions || '');
   const [editingSummary, setEditingSummary] = useState(false);
   const [summary, setSummary] = useState(trip.summary || '');
 
@@ -408,16 +539,15 @@ function TripDetail({ trip, onBack, onReload, userId }) {
 
   const nights = nightsBetween(trip.start_date, trip.end_date);
 
-  async function saveWho() {
+  async function saveWho(next) {
     const { error } = await supabase
       .from('trips')
-      .update({ companions: who.trim() || null })
+      .update({ companions: next.trim() || null })
       .eq('id', trip.id);
     if (error) {
       alert(`Couldn't save that: ${error.message}`);
       return;
     }
-    setEditingWho(false);
     await onReload();
   }
 
@@ -434,7 +564,14 @@ function TripDetail({ trip, onBack, onReload, userId }) {
     await onReload();
   }
 
-  async function saveDay(day, rows) {
+  async function saveDay(day, rows, dayFields) {
+    if (dayFields) {
+      const { error } = await supabase.from('days').update(dayFields).eq('id', day.id);
+      if (error) {
+        alert(`Couldn't save the day details: ${error.message}`);
+        return;
+      }
+    }
     await supabase.from('items').delete().eq('day_id', day.id);
 
     if (rows.length) {
@@ -503,30 +640,7 @@ function TripDetail({ trip, onBack, onReload, userId }) {
         </p>
 
         <div className="mt-3">
-          {editingWho ? (
-            <div className="flex items-center gap-2">
-              <input
-                value={who}
-                onChange={(e) => setWho(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && saveWho()}
-                placeholder="Who came along?"
-                autoFocus
-                className="hub-input flex-1 px-2 py-1 text-sm"
-              />
-              <Button onClick={saveWho}>Save</Button>
-            </div>
-          ) : (
-            <button onClick={() => setEditingWho(true)} className="text-xs hub-muted">
-              {trip.companions ? (
-                <>
-                  <span className="hub-eyebrow mr-2">With</span>
-                  {trip.companions}
-                </>
-              ) : (
-                <span className="hub-faint underline">+ Add who you went with</span>
-              )}
-            </button>
-          )}
+          <People value={trip.companions} onSave={saveWho} />
         </div>
 
         <div className="mt-2">
@@ -576,7 +690,13 @@ function TripDetail({ trip, onBack, onReload, userId }) {
               <div className="flex items-baseline justify-between gap-3 mb-1.5">
                 <h2 className="text-sm font-semibold tracking-tight">
                   {heading}
-                  {day.city && <span className="hub-faint font-normal ml-2">{day.city}</span>}
+                  {day.city && <span className="hub-muted font-normal ml-2">{day.city}</span>}
+                  {day.stay && (
+                    <span className="hub-faint font-normal ml-2 inline-flex items-center gap-1">
+                      <Icon name="stay" size={12} />
+                      {day.stay}
+                    </span>
+                  )}
                 </h2>
                 <div className="flex gap-3 shrink-0">
                   {!isEditing && (
@@ -594,7 +714,8 @@ function TripDetail({ trip, onBack, onReload, userId }) {
                 <DayEditor
                   day={day}
                   items={items}
-                  onSave={(rows) => saveDay(day, rows)}
+                  knownCities={knownCities}
+                  onSave={(rows, fields) => saveDay(day, rows, fields)}
                   onCancel={() => setEditingDay(null)}
                 />
               ) : items.length === 0 ? (
@@ -1015,10 +1136,8 @@ function Stats({ trips }) {
       <div className="text-sm leading-relaxed">
         {stats.countries.map(([c, n]) => (
           <div key={c} className="flex items-center justify-between py-1 border-b hub-border">
-            <span>
-              <span className="mr-2" aria-hidden="true">
-                {countryFlag(c)}
-              </span>
+            <span className="flex items-center gap-2">
+              <Flag country={c} size={20} />
               {c}
             </span>
             {n > 1 && <span className="hub-faint text-xs">×{n}</span>}
@@ -1105,7 +1224,13 @@ export default function App() {
     <div className="h-screen flex flex-col" style={{ backgroundColor: 'var(--cream)' }}>
       <main className="flex-1 hub-scroll">
         {open ? (
-          <TripDetail trip={open} userId={session.user.id} onBack={() => setOpenId(null)} onReload={load} />
+          <TripDetail
+            trip={open}
+            userId={session.user.id}
+            knownCities={knownCities}
+            onBack={() => setOpenId(null)}
+            onReload={load}
+          />
         ) : tab === 'archive' ? (
           <Archive trips={past} onOpen={(t) => setOpenId(t.id)} />
         ) : tab === 'upcoming' ? (
