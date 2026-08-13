@@ -129,111 +129,47 @@ export function mapsUrl(item, city) {
 // Trip cards — a handful of representative places, spread across the days
 // ---------------------------------------------------------------------------
 
-const TOWN_LEAD = /^(?:travel to|fly to|fly|train to|bus to|coach to|drive to|transfer to|transfer >|day trip to|trip to|night in|night at|day in|explore|arrive in|arrive|chill in|shopping in|visit|back to)\s+(.+)$/i;
-const TOWN_ARROW = /(?:>|->|\u2192)\s*([A-Za-z][A-Za-z\s.'\u2019-]{2,})$/;
-const DATEISH = /^(?:mon|tue|wed|thu|fri|sat|sun|day\s*\d)/i;
-const TOWN_STOP = /\b(gaff|hotel|hostel|accom|accommodation|home|airport|apartment|airbnb|guesthouse|the boat|boat|bed|camp|ldn|work|gym|out|back|onwards|early|late|there|here|around|town|city|the strip|local|locally|nearby|skiing|restaurant|dinner|lunch|breakfast)\b/i;
-
-function titleish(s) {
-  return s
-    .split(/\s+/)
-    .map((w) => (w.length > 2 && w === w.toLowerCase() ? w[0].toUpperCase() + w.slice(1) : w))
-    .join(' ');
-}
-
-/** Town or city named by a line like "night in Vik" or "Early train > Seoul". */
-function townFrom(item) {
-  let s = (item.title || '').trim();
-  if (DATEISH.test(s)) return null;
-  if (s.includes(' @ ')) return null;
-
-  let m = s.match(TOWN_LEAD);
-  let out = m ? m[1] : null;
-  if (!out) {
-    m = s.match(TOWN_ARROW);
-    out = m ? m[1] : null;
-  }
-  if (!out) return null;
-
-  out = out
-    .replace(/\s*\([^)]*\)\s*/g, ' ')
-    .replace(/\[[^\]]*\]/g, ' ')
-    .replace(/\b\d{1,2}([.:]\d{2})?\s*(am|pm)\b/gi, ' ')
-    .split(/\s+\/\s+|,|\s+\bor\b\s+/i)[0]
-    .replace(/[.,;:!?]+$/, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-
-  if (/[>\u2192]/.test(out)) return null;             // still a route, not a place
-  if (/\d/.test(out)) return null;                    // times, flight numbers
-  if (out.length < 3 || out.length > 22) return null;
-  if (out.split(/\s+/).length > 3) return null;
-  if (TOWN_STOP.test(out)) return null;
-  // airport codes and other all-caps shorthand
-  if (out.split(/\s+/).some((w) => w.length <= 4 && w === w.toUpperCase() && /^[A-Z]+$/.test(w))) return null;
-  return titleish(out);
-}
-
 /**
- * A few representative places for the card. Towns and cities first, since
- * that's the useful summary of where a trip actually went; venues only fill
- * the gap on single-city trips where there are no travel legs to read.
+ * The places shown on a trip card. Location-driven only: the cities recorded
+ * against each day, in the order visited. A single-city trip gets nothing —
+ * the title already says where it was. Neighbourhoods and anything the data
+ * can't infer go in the manual summary instead.
  */
-export function tripPlaces(trip, limit = 5) {
-  // A manual summary always wins — the heuristic below can't read every
-  // itinerary style, so this is the escape hatch.
+export function tripPlaces(trip, limit = 6) {
   if (trip.summary && trip.summary.trim()) {
-    return trip.summary.split(/\s*[;\u00b7]\s*|\s*,\s*/).map((s) => s.trim()).filter(Boolean);
+    return trip.summary
+      .split(/\s*[;\u00b7]\s*|\s*,\s*/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, limit);
   }
 
-  const own = new Set([trip.title, trip.city].filter(Boolean).map((s) => s.toLowerCase()));
   const days = [...(trip.days || [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-  const seen = new Set();
-  const out = [];
+  const own = new Set([trip.title, trip.city].filter(Boolean).map((s) => s.toLowerCase()));
 
-  const add = (raw) => {
-    if (!raw || out.length >= limit) return;
-    const k = raw.toLowerCase();
-    if (seen.has(k) || own.has(k)) return;
-    seen.add(k);
-    out.push(raw);
-  };
-
-  const allItems = [];
+  const seq = [];
   days.forEach((d) => {
-    if (d.city) add(d.city);
-    [...(d.items || [])].sort((a, b) => a.sort_order - b.sort_order).forEach((i) => allItems.push(i));
+    const c = (d.city || '').trim();
+    if (!c) return;
+    if (seq.length && seq[seq.length - 1].toLowerCase() === c.toLowerCase()) return;
+    seq.push(c);
   });
 
-  allItems.forEach((i) => add(townFrom(i)));
+  const uniq = [...new Map(seq.map((s) => [s.toLowerCase(), s])).values()].filter(
+    (s) => !own.has(s.toLowerCase())
+  );
 
-  // Single-city trips have no travel legs to read, so fall back to the
-  // named venues and landmarks instead.
-  if (out.length < 3) {
-    allItems.forEach((i) => {
-      if (!i.title.includes(' @ ')) return;
-      const t = mapsTarget(i);
-      if (t && t.length <= 24 && !TOWN_STOP.test(t) && !/\d/.test(t)) add(t);
-    });
-  }
-  if (out.length < 3) {
-    allItems.forEach((i) => {
-      const t = mapsTarget(i);
-      if (t && t.length <= 24 && !TOWN_STOP.test(t) && !/\d/.test(t)) add(t);
-    });
-  }
-
-  return out.slice(0, limit);
+  return uniq.length >= 2 ? uniq.slice(0, limit) : [];
 }
 
 // ---------------------------------------------------------------------------
-// Item kinds
+// Item kinds — this is what picks the icon, applied whenever a day is saved
 // ---------------------------------------------------------------------------
 
-const FOOD = /^(dinner|lunch|breakfast|brunch|supper|food|eat|pizza|shake|cookies|dessert|coffee|cake|snack|pastels|pastries|post-dins)\b/i;
-const DRINK = /^(drinks?|cocktails?|beers?|wine|pint|bar\b|out\b|bno|mno|afters|bender|pub|night out)\b/i;
+const FOOD = /^(dinner|lunch|breakfast|brunch|supper|food|eat|pizza|shake|cookies|dessert|coffee|cake|snack|pastels|pastries|post-dins|brekky|dins)\b/i;
+const DRINK = /^(drinks?|cocktails?|beers?|wine|pint|bar\b|out\b|bno|mno|afters|bender|pub|night out|nightcap)\b/i;
 const TRAVEL = /^(fly|flight|train|transfer|drive|bus|coach|ferry|taxi|arrive|depart|to airport|travel|overnight bus|overnight coach)\b/i;
-const STAY = /\b(hotel|hostel|guesthouse|airbnb|apartments?|inn|lodge|camp)\b/i;
+const STAY = /\b(hotel|hostel|guesthouse|airbnb|apartments?|inn|lodge|resort|villa|camp)\b/i;
 
 export function classifyKind(title) {
   const t = (title || '').trim();
@@ -245,8 +181,8 @@ export function classifyKind(title) {
 }
 
 // ---------------------------------------------------------------------------
-// Bullet parsing — the same rules used for the Google Docs import, so pasting
-// an old itinerary in behaves identically to what's already in the archive.
+// Bullet parsing — same rules as the Google Docs import, so typing a line now
+// behaves exactly like the 1,700 already in the archive.
 // ---------------------------------------------------------------------------
 
 const TIME_RE = /\b(\d{1,2}(?:[.:]\d{2})?\s*(?:AM|PM|am|pm))\b|\b(\d{1,2}[.:]\d{2})\b/;
@@ -258,11 +194,6 @@ function nameFromMapsUrl(url) {
   return decodeURIComponent(m[1].replace(/\+/g, ' ')).trim() || null;
 }
 
-/**
- * Splits one line into its parts.
- *   "Dinner @ Kink, 8.30PM - great food"  ->  title / time / notes
- * A time is only recognised after a comma, so "Hyrox until 1pm" stays intact.
- */
 export function parseLine(raw) {
   let s = (raw || '').trim();
   let maps_url = null;
@@ -299,7 +230,6 @@ export function parseLine(raw) {
   return { title: s, time_label, notes, maps_url, kind: classifyKind(s) };
 }
 
-/** Editor text to rows. Two leading spaces makes a sub-bullet. */
 export function parseBullets(text) {
   const out = [];
   const lastAtDepth = {};
@@ -321,7 +251,6 @@ export function parseBullets(text) {
   return out;
 }
 
-/** The reverse: existing rows back into editable bullet text. */
 export function itemsToText(items) {
   const byParent = new Map();
   items.forEach((i) => {
