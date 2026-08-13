@@ -106,6 +106,18 @@ input[type='date'] {
   min-height: 42px;
   box-sizing: border-box;
   font-family: inherit;
+  /* WebKit sizes date inputs from these logical widths, which is what makes
+     them overflow a container that has already been given max-width. */
+  -webkit-min-logical-width: 0;
+}
+
+input[type='date']::-webkit-date-and-time-value {
+  text-align: left;
+  margin: 0;
+}
+
+input[type='date']::-webkit-datetime-edit {
+  padding: 0;
 }
 
 /* Keyboard focus stays visible everywhere */
