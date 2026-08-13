@@ -167,6 +167,32 @@ function Field({ label, children }) {
  * Emoji flags don't render on Windows or most desktop Chrome installs, so
  * these are images keyed off the ISO code instead.
  */
+/**
+ * A native date input with an explicit clear. iOS's own picker has a Reset
+ * button that only resets the wheels — it never commits an empty value — so
+ * this provides the one thing that actually works.
+ */
+function DateField({ label, value, onChange }) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-1.5">
+        <span className="hub-eyebrow">{label}</span>
+        {value && (
+          <button onClick={() => onChange('')} className="hub-faint text-xs underline">
+            clear
+          </button>
+        )}
+      </div>
+      <input
+        type="date"
+        value={value || ''}
+        onChange={(e) => onChange(e.target.value)}
+        className="hub-input w-full px-3 py-2"
+      />
+    </div>
+  );
+}
+
 function Flag({ country, size = 18 }) {
   const code = countryCode(country);
   if (!code) return null;
@@ -207,17 +233,83 @@ function Tags({ value, onSave, placeholder, addLabel, extraAction, reorder }) {
     .split(/\s*[;\u00b7]\s*|\s*,\s*/)
     .map((s) => s.trim())
     .filter(Boolean);
+
   const [draft, setDraft] = useState('');
   const [open, setOpen] = useState(false);
+  const [order, setOrder] = useState(null);      // live order during a drag
+  const [dragIndex, setDragIndex] = useState(null);
 
+  // Refs, because the window listeners below are registered once per drag and
+  // would otherwise close over stale state.
+  const orderRef = useRef(null);
+  const indexRef = useRef(null);
+  const movedRef = useRef(false);
+
+  const shown = order || list;
   const commit = (next) => onSave(next.join(', '));
 
-  function move(index, dir) {
-    const next = [...list];
-    const [item] = next.splice(index, 1);
-    next.splice(index + dir, 0, item);
-    commit(next);
+  const canDrag = reorder && list.length > 1;
+
+  function startDrag(e, index) {
+    if (!canDrag) return;
+    e.preventDefault();
+    orderRef.current = [...list];
+    indexRef.current = index;
+    movedRef.current = false;
+    setOrder([...list]);
+    setDragIndex(index);
   }
+
+  // Listeners go on the window rather than the chip: React re-creates the chip
+  // nodes as the order changes mid-drag, which would drop element-bound events.
+  useEffect(() => {
+    if (dragIndex == null) return undefined;
+
+    function onMove(e) {
+      const point = e.touches ? e.touches[0] : e;
+      const el = document.elementFromPoint(point.clientX, point.clientY);
+      const chip = el && el.closest ? el.closest('[data-chip-index]') : null;
+      if (!chip) return;
+      const to = Number(chip.getAttribute('data-chip-index'));
+      const from = indexRef.current;
+      if (Number.isNaN(to) || to === from) return;
+
+      const next = [...(orderRef.current || list)];
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      orderRef.current = next;
+      indexRef.current = to;
+      movedRef.current = true;
+      setOrder(next);
+      setDragIndex(to);
+    }
+
+    function onEnd() {
+      const next = orderRef.current;
+      const changed = movedRef.current && next && next.join('\u0000') !== list.join('\u0000');
+      orderRef.current = null;
+      indexRef.current = null;
+      setDragIndex(null);
+      setOrder(null);
+      if (changed) commit(next);
+    }
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onEnd);
+    window.addEventListener('pointercancel', onEnd);
+    // Safari on iOS still needs the touch pair when pointer events are patchy
+    window.addEventListener('touchmove', onMove, { passive: false });
+    window.addEventListener('touchend', onEnd);
+
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onEnd);
+      window.removeEventListener('pointercancel', onEnd);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onEnd);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragIndex == null, value]);
 
   function add() {
     const name = draft.trim().replace(/[,;]$/, '');
@@ -229,43 +321,43 @@ function Tags({ value, onSave, placeholder, addLabel, extraAction, reorder }) {
   return (
     <div>
       <div className="flex flex-wrap items-center gap-1.5">
-        {list.map((p, i) => (
-          <span
-            key={p}
-            className="inline-flex items-center gap-1.5 px-2 py-0.5 text-xs rounded-sm"
-            style={{ backgroundColor: 'var(--navy-10)' }}
-          >
-            {reorder && i > 0 && (
-              <button
-                onClick={() => move(i, -1)}
-                aria-label={`Move ${p} earlier`}
-                className="hub-faint"
-                style={{ lineHeight: 1, fontSize: '12px' }}
-              >
-                ‹
-              </button>
-            )}
-            {p}
-            {reorder && i < list.length - 1 && (
-              <button
-                onClick={() => move(i, 1)}
-                aria-label={`Move ${p} later`}
-                className="hub-faint"
-                style={{ lineHeight: 1, fontSize: '12px' }}
-              >
-                ›
-              </button>
-            )}
-            <button
-              onClick={() => commit(list.filter((x) => x !== p))}
-              aria-label={`Remove ${p}`}
-              className="hub-faint"
-              style={{ lineHeight: 1, fontSize: '13px' }}
+        {shown.map((p, i) => {
+          const isDragging = dragIndex === i;
+          return (
+            <span
+              key={p}
+              data-chip-index={i}
+              onPointerDown={(e) => startDrag(e, i)}
+              onTouchStart={(e) => startDrag(e, i)}
+              className="inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded-sm select-none"
+              style={{
+                backgroundColor: isDragging ? 'var(--navy-20)' : 'var(--navy-10)',
+                cursor: canDrag ? 'grab' : 'default',
+                touchAction: canDrag ? 'none' : 'auto',
+                opacity: dragIndex != null && !isDragging ? 0.6 : 1,
+                boxShadow: isDragging ? '0 1px 4px rgba(9,32,51,0.25)' : 'none',
+              }}
             >
-              ×
-            </button>
-          </span>
-        ))}
+              {canDrag && (
+                <span className="hub-faint" aria-hidden="true" style={{ fontSize: '10px', lineHeight: 1 }}>
+                  ⠿
+                </span>
+              )}
+              {p}
+              <button
+                onPointerDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
+                onClick={() => commit(list.filter((x) => x !== p))}
+                aria-label={`Remove ${p}`}
+                className="hub-faint"
+                style={{ lineHeight: 1, fontSize: '13px' }}
+              >
+                ×
+              </button>
+            </span>
+          );
+        })}
+
         {!open && (
           <button onClick={() => setOpen(true)} className="hub-faint text-xs underline">
             {list.length ? '+ add' : addLabel}
@@ -933,14 +1025,7 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
         {days.length > 0 &&
           (addingDay ? (
             <div className="hub-card p-3 mb-4">
-              <Field label="Date">
-                <input
-                  type="date"
-                  value={newDayDate || ''}
-                  onChange={(e) => setNewDayDate(e.target.value)}
-                  className="hub-input px-3 py-2"
-                />
-              </Field>
+              <DateField label="Date" value={newDayDate} onChange={setNewDayDate} />
               <div className="flex gap-2 mt-3">
                 <Button onClick={addDay}>Add day</Button>
                 <Button variant="ghost" onClick={() => setAddingDay(false)}>
@@ -1218,10 +1303,17 @@ function Archive({ trips, onOpen, query, sectionRefs, onYears }) {
    Upcoming
    ========================================================================== */
 
+const EMPTY_TRIP = { title: '', city: '', country: '', start_date: '', end_date: '', companions: '' };
+
 function Upcoming({ trips, onOpen, onReload, userId, knownCities }) {
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ title: '', city: '', country: '', start_date: '', end_date: '', companions: '' });
+  const [form, setForm] = useState(EMPTY_TRIP);
   const [saving, setSaving] = useState(false);
+
+  function closeForm() {
+    setForm(EMPTY_TRIP);   // discard the draft, so reopening starts blank
+    setAdding(false);
+  }
 
   async function save() {
     if (!form.title.trim() || !form.start_date) return;
@@ -1240,8 +1332,7 @@ function Upcoming({ trips, onOpen, onReload, userId, knownCities }) {
       alert(`Couldn't add that trip: ${error.message}`);
       return;
     }
-    setForm({ title: '', city: '', country: '', start_date: '', end_date: '', companions: '' });
-    setAdding(false);
+    closeForm();
     await onReload();
   }
 
@@ -1291,26 +1382,16 @@ function Upcoming({ trips, onOpen, onReload, userId, knownCities }) {
             </datalist>
           </Field>
 
-          {/* stacked: iOS date inputs have a wide intrinsic size and overflow
-              a two-column grid on a phone */}
-          <Field label="From">
-            <input
-              type="date"
-              value={form.start_date}
-              onChange={(e) => setForm({ ...form, start_date: e.target.value })}
-              className="hub-input w-full px-3 py-2"
-              style={{ minWidth: 0 }}
-            />
-          </Field>
-          <Field label="To">
-            <input
-              type="date"
-              value={form.end_date}
-              onChange={(e) => setForm({ ...form, end_date: e.target.value })}
-              className="hub-input w-full px-3 py-2"
-              style={{ minWidth: 0 }}
-            />
-          </Field>
+          <DateField
+            label="From"
+            value={form.start_date}
+            onChange={(v) => setForm({ ...form, start_date: v })}
+          />
+          <DateField
+            label="To"
+            value={form.end_date}
+            onChange={(v) => setForm({ ...form, end_date: v })}
+          />
 
           <Field label="With">
             <input
@@ -1325,14 +1406,20 @@ function Upcoming({ trips, onOpen, onReload, userId, knownCities }) {
             <Button onClick={save} disabled={saving || !form.title.trim() || !form.start_date}>
               {saving ? 'Adding…' : 'Add trip'}
             </Button>
-            <Button variant="ghost" onClick={() => setAdding(false)}>
+            <Button variant="ghost" onClick={closeForm}>
               Cancel
             </Button>
           </div>
         </div>
       ) : (
         <div className="mt-4">
-          <Button variant="ghost" onClick={() => setAdding(true)}>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setForm(EMPTY_TRIP);
+              setAdding(true);
+            }}
+          >
             + Add a trip
           </Button>
         </div>
