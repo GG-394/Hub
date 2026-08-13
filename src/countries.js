@@ -83,6 +83,15 @@ const SUBDIVISION_FLAGS = {
   Wales: '\u{1F3F4}\u{E0067}\u{E0062}\u{E0077}\u{E006C}\u{E0073}\u{E007F}',
 };
 
+// flagcdn serves the home nations under these codes
+const SUBDIVISION_CODES = {
+  Scotland: 'gb-sct',
+  England: 'gb-eng',
+  Wales: 'gb-wls',
+  'United Kingdom': 'gb',
+  UK: 'gb',
+};
+
 const ALIASES = {
   UK: 'United Kingdom',
   'United States': 'USA',
@@ -93,6 +102,14 @@ const ALIASES = {
   Holland: 'Netherlands',
   'New Zeland': 'New Zealand',
 };
+
+export function countryCode(name) {
+  const clean = (name || '').trim();
+  if (!clean) return null;
+  if (SUBDIVISION_CODES[clean]) return SUBDIVISION_CODES[clean];
+  const resolved = ALIASES[clean] || clean;
+  return COUNTRY_CODES[resolved] || null;
+}
 
 export function countryFlag(name) {
   const clean = (name || '').trim();
