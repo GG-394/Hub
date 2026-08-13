@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './supabase';
 import { COUNTRY_NAMES, countryCode } from './countries';
 import { COUNTRY_PATHS, MAP_HEIGHT, MAP_WIDTH } from './worldPaths';
@@ -1719,6 +1719,9 @@ export default function App() {
   const [years, setYears] = useState([]);
   const sectionRefs = useRef({});
   const scrollRef = useRef(null);
+  const savedScroll = useRef({});   // scroll position per tab
+  const prevOpen = useRef(null);
+  const prevTab = useRef('archive');
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -1746,10 +1749,49 @@ export default function App() {
     if (session) load();
   }, [session, load]);
 
-  // The scroll container is reused across views, so reset it or a trip opens
-  // part-way down wherever the previous list happened to be.
+  /**
+   * One scroll container serves every view, so its position has to be managed
+   * by hand: park it when opening a trip, put it back on the way out.
+   * useLayoutEffect so the restore happens before paint, with no visible jump.
+   */
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const openedTrip = openId && !prevOpen.current;
+    const closedTrip = !openId && prevOpen.current;
+    const switchedTrip = openId && prevOpen.current && openId !== prevOpen.current;
+    const switchedTab = tab !== prevTab.current;
+
+    if (openedTrip) {
+      savedScroll.current[prevTab.current] = el.scrollTop;
+      el.scrollTop = 0;
+    } else if (closedTrip) {
+      const y = savedScroll.current[tab] || 0;
+      el.scrollTop = y;
+      // the list can settle a frame late; reassert once
+      requestAnimationFrame(() => {
+        if (scrollRef.current) scrollRef.current.scrollTop = y;
+      });
+    } else if (switchedTrip) {
+      el.scrollTop = 0;
+    } else if (switchedTab) {
+      el.scrollTop = savedScroll.current[tab] || 0;
+    }
+
+    prevOpen.current = openId;
+    prevTab.current = tab;
+  }, [openId, tab]);
+
+  // Remember where you were as you scroll a list, so Back can return to it
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+    const el = scrollRef.current;
+    if (!el || openId) return undefined;
+    const onScroll = () => {
+      savedScroll.current[tab] = el.scrollTop;
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
   }, [openId, tab]);
 
   const { past, upcoming } = useMemo(() => {
