@@ -29,6 +29,7 @@ const ICONS = {
   stay:  { d: 'M3 18.5v-6h18v6M3 12.5V7m18 5.5v-3a2 2 0 0 0-2-2h-7v5M6.5 10h2.5', mode: 'stroke' },
   pin:   { d: 'M12 21.5C12 21.5 18.5 15 18.5 10.2A6.5 6.5 0 0 0 5.5 10.2C5.5 15 12 21.5 12 21.5Z', mode: 'fill' },
   dot:   { d: '', mode: 'dot' },
+  link:  { d: 'M9.5 14.5 14.5 9.5M11 6.5 12.7 4.8a4 4 0 0 1 5.7 5.7l-1.7 1.7M13 17.5l-1.7 1.7a4 4 0 0 1-5.7-5.7l1.7-1.7', mode: 'stroke' },
 };
 
 function Icon({ name, size = 14 }) {
@@ -65,7 +66,8 @@ function Icon({ name, size = 14 }) {
   );
 }
 
-/** Icon for a line. Flights get a plane, other travel a route arrow. */
+/** Icon for a line, based purely on what it is. Flights get a plane, other
+ *  travel a route arrow, everything unclassified a pin. */
 function iconFor(item) {
   const t = (item.title || '').toLowerCase();
   if (/\b(fly|flight|plane|airport)\b/.test(t)) return 'plane';
@@ -73,7 +75,7 @@ function iconFor(item) {
   if (item.kind === 'food') return 'food';
   if (item.kind === 'drink') return 'drink';
   if (item.kind === 'stay') return 'stay';
-  return 'dot';
+  return 'pin';
 }
 
 /* ==========================================================================
@@ -346,14 +348,16 @@ function ItemRow({ item, city, depth = 0, onToggleLink }) {
   // Nothing is guessed, so "walk round El Nido" stays plain unless you say so.
   const linked = item.mappable === true || !!item.maps_url;
   const url = linked ? mapsUrl(item, city) : null;
-  const icon = linked ? 'pin' : iconFor(item);
+  // The icon always says what the item is; the button on the right says
+  // whether it's linked. Conflating the two hid every food and drink icon.
+  const icon = iconFor(item);
 
   return (
     <div
       style={depth > 0 ? { marginLeft: '18px', paddingLeft: '10px', borderLeft: '1px solid var(--navy-10)' } : undefined}
     >
       <div className="flex gap-2 py-1 text-sm items-start group">
-        <span className={linked ? '' : 'hub-faint'} style={{ marginTop: '2px' }}>
+        <span className="hub-muted" style={{ marginTop: '2px' }}>
           <Icon name={icon} />
         </span>
 
@@ -373,10 +377,14 @@ function ItemRow({ item, city, depth = 0, onToggleLink }) {
           onClick={() => onToggleLink(item, !linked)}
           title={linked ? 'Remove the map link' : 'Link this to Google Maps'}
           aria-label={linked ? `Unlink ${item.title}` : `Link ${item.title} to Google Maps`}
-          className="shrink-0 opacity-40 hover:opacity-100 focus:opacity-100"
-          style={{ color: linked ? 'var(--navy)' : 'var(--navy-45)', marginTop: '2px' }}
+          className="shrink-0"
+          style={{
+            color: linked ? 'var(--navy)' : 'var(--navy-45)',
+            opacity: linked ? 0.85 : 0.3,
+            marginTop: '3px',
+          }}
         >
-          <Icon name="pin" size={12} />
+          <Icon name="link" size={12} />
         </button>
       </div>
     </div>
