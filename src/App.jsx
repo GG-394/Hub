@@ -183,12 +183,18 @@ function DateField({ label, value, onChange }) {
           </button>
         )}
       </div>
-      <input
-        type="date"
-        value={value || ''}
-        onChange={(e) => onChange(e.target.value)}
-        className="hub-input w-full px-3 py-2"
-      />
+      {/* A flex wrapper with min-width:0 is what actually constrains a native
+          date input — it otherwise sizes to its intrinsic content width and
+          ignores max-width. overflow:hidden is the backstop. */}
+      <div style={{ display: 'flex', minWidth: 0, overflow: 'hidden' }}>
+        <input
+          type="date"
+          value={value || ''}
+          onChange={(e) => onChange(e.target.value)}
+          className="hub-input px-3 py-2"
+          style={{ flex: '1 1 0%', minWidth: 0, width: '100%' }}
+        />
+      </div>
     </div>
   );
 }
