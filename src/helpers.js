@@ -60,56 +60,180 @@ export function dayHeading(iso) {
 }
 
 // ---------------------------------------------------------------------------
-// Google Maps
+// Google Maps — only link things that are actually places
 // ---------------------------------------------------------------------------
 
+// Words that mean "not a specific findable place"
+const GENERIC = /\b(hotel|gaff|home|accom|accommodation|apartment|airbnb|hostel|food truck|non-descript|locally|nearby|somewhere|the place|airport|pool|gym|sports bar|our place|the flat|room|restaurant near|bar near|place near|old town|walking tour|day trip|training)\b/i;
+
+// A bare category is not a place
+const BARE = /^(restaurant|bar|cafe|pub|club|market|beach|park|dinner|lunch|breakfast|brunch|shake|coffee|drinks?|the strip|lie in|early night|chill|rest|recovery|pack|packing|lie-in|shopping|swim|run|golf|padel)$/i;
+
+// Filler activities that never map
+const NON_PLACE = /^(lie in|lie-in|early night|chill|chill day|chill night|recovery|rest|pack|packing|fishing|swim|run|nap|gym|shopping|beach day|travel day|bender)\b/i;
+
+const FOOD_AT = /^(?:dinner|lunch|breakfast|brunch|supper|drinks?|cocktails?|coffee|shake|post-dins|snack)\s+(?:at|in)\s+(.+)$/i;
+const PLACE_AT = /^(?:travel to|trip to|night in|day in|explore|shopping in|visit)\s+(.+)$/i;
+
 /**
- * "Dinner @ Jolesch" -> "Jolesch". Keeps the whole string when there's no "@",
- * because "Howth cliff walk" is itself the searchable thing.
+ * The thing to search for, or null when this line isn't a place.
+ * Deliberately conservative — a wrong link is more annoying than a missing one.
  */
 export function placeName(title) {
   if (!title) return '';
-  const parts = title.split(/\s+@\s+/);
+  const parts = (title || '').split(/\s+@\s+/);
   return (parts.length > 1 ? parts[parts.length - 1] : title).trim();
 }
 
-/**
- * A stored maps_url always wins (it came from a Maps share sheet, so it's exact).
- * Otherwise build a search URL from the place name plus whatever city we know.
- */
+export function mapsTarget(item) {
+  if (item.maps_url) return item.title;
+
+  let s = (item.title || '').trim();
+
+  if (s.includes(' / ')) return null;              // compound line
+  if (/[>â†’]/.test(s) || s.includes('->')) return null; // a route, not a place
+  if (s.split(/\s+/).length > 7) return null;      // a sentence
+  if (NON_PLACE.test(s)) return null;
+
+  const hasVenue = s.includes(' @ ');
+  if (item.kind === 'travel' && !hasVenue) return null;
+
+  if (hasVenue) s = s.split(' @ ').pop().trim();
+  else {
+    const m = s.match(FOOD_AT) || s.match(PLACE_AT);
+    if (m) s = m[1].trim();
+  }
+
+  s = s.replace(/\s*\([^)]*\)\s*$/, '').replace(/[.,;:!?]+$/, '').trim();
+
+  if (s.length < 3) return null;
+  if (!/[A-Z]/.test(s)) return null;               // no proper noun, no link
+  if (BARE.test(s)) return null;
+  if (GENERIC.test(s)) return null;
+  return s;
+}
+
+export function isMappable(item) {
+  return mapsTarget(item) !== null;
+}
+
 export function mapsUrl(item, city) {
   if (item.maps_url) return item.maps_url;
-  const q = [placeName(item.title), city].filter(Boolean).join(' ');
+  const t = mapsTarget(item);
+  if (!t) return null;
+  const q = [t, city].filter(Boolean).join(' ');
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
 }
 
-/** Items where a map link is useful. Travel and one-off notes aren't places. */
-export function isMappable(item) {
-  if (item.maps_url) return true;
-  if (item.kind === 'travel') return false;
-  const t = item.title.toLowerCase();
-  if (t.length < 3) return false;
-  if (/^(lie in|early night|chill|chill day|recovery|rest|lie-in|pack|packing)\b/.test(t)) return false;
-  return true;
+// ---------------------------------------------------------------------------
+// Trip cards — a handful of representative places, spread across the days
+// ---------------------------------------------------------------------------
+
+const TOWN_LEAD = /^(?:travel to|fly to|fly|train to|bus to|coach to|drive to|transfer to|transfer >|day trip to|trip to|night in|night at|day in|explore|arrive in|arrive|chill in|shopping in|visit|back to)\s+(.+)$/i;
+const TOWN_ARROW = /(?:>|->|\u2192)\s*([A-Za-z][A-Za-z\s.'\u2019-]{2,})$/;
+const DATEISH = /^(?:mon|tue|wed|thu|fri|sat|sun|day\s*\d)/i;
+const TOWN_STOP = /\b(gaff|hotel|hostel|accom|accommodation|home|airport|apartment|airbnb|guesthouse|the boat|boat|bed|camp|ldn|work|gym|out|back|onwards|early|late|there|here|around|town|city|the strip|local|locally|nearby|skiing|restaurant|dinner|lunch|breakfast)\b/i;
+
+function titleish(s) {
+  return s
+    .split(/\s+/)
+    .map((w) => (w.length > 2 && w === w.toLowerCase() ? w[0].toUpperCase() + w.slice(1) : w))
+    .join(' ');
+}
+
+/** Town or city named by a line like "night in Vik" or "Early train > Seoul". */
+function townFrom(item) {
+  let s = (item.title || '').trim();
+  if (DATEISH.test(s)) return null;
+  if (s.includes(' @ ')) return null;
+
+  let m = s.match(TOWN_LEAD);
+  let out = m ? m[1] : null;
+  if (!out) {
+    m = s.match(TOWN_ARROW);
+    out = m ? m[1] : null;
+  }
+  if (!out) return null;
+
+  out = out
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/\b\d{1,2}([.:]\d{2})?\s*(am|pm)\b/gi, ' ')
+    .split(/\s+\/\s+|,|\s+\bor\b\s+/i)[0]
+    .replace(/[.,;:!?]+$/, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  if (/[>\u2192]/.test(out)) return null;             // still a route, not a place
+  if (/\d/.test(out)) return null;                    // times, flight numbers
+  if (out.length < 3 || out.length > 22) return null;
+  if (out.split(/\s+/).length > 3) return null;
+  if (TOWN_STOP.test(out)) return null;
+  // airport codes and other all-caps shorthand
+  if (out.split(/\s+/).some((w) => w.length <= 4 && w === w.toUpperCase() && /^[A-Z]+$/.test(w))) return null;
+  return titleish(out);
+}
+
+/**
+ * A few representative places for the card. Towns and cities first, since
+ * that's the useful summary of where a trip actually went; venues only fill
+ * the gap on single-city trips where there are no travel legs to read.
+ */
+export function tripPlaces(trip, limit = 5) {
+  // A manual summary always wins — the heuristic below can't read every
+  // itinerary style, so this is the escape hatch.
+  if (trip.summary && trip.summary.trim()) {
+    return trip.summary.split(/\s*[;\u00b7]\s*|\s*,\s*/).map((s) => s.trim()).filter(Boolean);
+  }
+
+  const own = new Set([trip.title, trip.city].filter(Boolean).map((s) => s.toLowerCase()));
+  const days = [...(trip.days || [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+  const seen = new Set();
+  const out = [];
+
+  const add = (raw) => {
+    if (!raw || out.length >= limit) return;
+    const k = raw.toLowerCase();
+    if (seen.has(k) || own.has(k)) return;
+    seen.add(k);
+    out.push(raw);
+  };
+
+  const allItems = [];
+  days.forEach((d) => {
+    if (d.city) add(d.city);
+    [...(d.items || [])].sort((a, b) => a.sort_order - b.sort_order).forEach((i) => allItems.push(i));
+  });
+
+  allItems.forEach((i) => add(townFrom(i)));
+
+  // Single-city trips have no travel legs to read, so fall back to the
+  // named venues and landmarks instead.
+  if (out.length < 3) {
+    allItems.forEach((i) => {
+      if (!i.title.includes(' @ ')) return;
+      const t = mapsTarget(i);
+      if (t && t.length <= 24 && !TOWN_STOP.test(t) && !/\d/.test(t)) add(t);
+    });
+  }
+  if (out.length < 3) {
+    allItems.forEach((i) => {
+      const t = mapsTarget(i);
+      if (t && t.length <= 24 && !TOWN_STOP.test(t) && !/\d/.test(t)) add(t);
+    });
+  }
+
+  return out.slice(0, limit);
 }
 
 // ---------------------------------------------------------------------------
 // Item kinds
 // ---------------------------------------------------------------------------
 
-export const KINDS = {
-  food: { label: 'Food', glyph: '◆' },
-  drink: { label: 'Drink', glyph: '●' },
-  activity: { label: 'Activity', glyph: '○' },
-  travel: { label: 'Travel', glyph: '→' },
-  stay: { label: 'Stay', glyph: '▲' },
-  other: { label: 'Other', glyph: '·' },
-};
-
-const FOOD = /^(dinner|lunch|breakfast|brunch|supper|food|eat|pizza|shake|cookies|dessert|coffee|cake|snack|pastels|pastries)\b/i;
+const FOOD = /^(dinner|lunch|breakfast|brunch|supper|food|eat|pizza|shake|cookies|dessert|coffee|cake|snack|pastels|pastries|post-dins)\b/i;
 const DRINK = /^(drinks?|cocktails?|beers?|wine|pint|bar\b|out\b|bno|mno|afters|bender|pub|night out)\b/i;
 const TRAVEL = /^(fly|flight|train|transfer|drive|bus|coach|ferry|taxi|arrive|depart|to airport|travel|overnight bus|overnight coach)\b/i;
-const STAY = /\b(hotel|hostel|guesthouse|airbnb|apartments?|inn|lodge|camp|gaff)\b/i;
+const STAY = /\b(hotel|hostel|guesthouse|airbnb|apartments?|inn|lodge|camp)\b/i;
 
 export function classifyKind(title) {
   const t = (title || '').trim();
@@ -128,7 +252,6 @@ export function classifyKind(title) {
 const TIME_RE = /\b(\d{1,2}(?:[.:]\d{2})?\s*(?:AM|PM|am|pm))\b|\b(\d{1,2}[.:]\d{2})\b/;
 const MAPS_LINK_RE = /(https?:\/\/(?:maps\.app\.goo\.gl|goo\.gl\/maps|(?:www\.)?google\.[a-z.]+\/maps)\S*)/i;
 
-/** Pull "Jolesch" out of a /place/Jolesch/@52.49... style URL */
 function nameFromMapsUrl(url) {
   const m = url.match(/\/maps\/place\/([^/@]+)/);
   if (!m) return null;
@@ -139,7 +262,6 @@ function nameFromMapsUrl(url) {
  * Splits one line into its parts.
  *   "Dinner @ Kink, 8.30PM - great food"  ->  title / time / notes
  * A time is only recognised after a comma, so "Hyrox until 1pm" stays intact.
- * A pasted Maps share ("Jolesch\nhttps://maps.app.goo.gl/x") keeps the link.
  */
 export function parseLine(raw) {
   let s = (raw || '').trim();
@@ -148,13 +270,12 @@ export function parseLine(raw) {
   const link = s.match(MAPS_LINK_RE);
   if (link) {
     maps_url = link[1];
-    s = s.replace(MAPS_LINK_RE, '').trim();
-    s = s.replace(/[–—-]\s*$/, '').trim();
+    s = s.replace(MAPS_LINK_RE, '').trim().replace(/[\u2013\u2014-]\s*$/, '').trim();
     if (!s) s = nameFromMapsUrl(maps_url) || 'Untitled';
   }
 
   let notes = null;
-  const dash = s.split(/\s+[-–]\s+/);
+  const dash = s.split(/\s+[-\u2013]\s+/);
   if (dash.length > 1) {
     const tail = dash.slice(1).join(' - ');
     if (tail.length < 90) {
@@ -178,10 +299,7 @@ export function parseLine(raw) {
   return { title: s, time_label, notes, maps_url, kind: classifyKind(s) };
 }
 
-/**
- * Turns the editor's text into rows. Two leading spaces (one indent level)
- * makes a sub-bullet of whatever came above it.
- */
+/** Editor text to rows. Two leading spaces makes a sub-bullet. */
 export function parseBullets(text) {
   const out = [];
   const lastAtDepth = {};
@@ -190,14 +308,13 @@ export function parseBullets(text) {
     if (!line.trim()) return;
     const indent = line.match(/^ */)[0].length;
     const depth = Math.min(Math.floor(indent / 2), 1);
-    const body = line.replace(/^\s*(?:[-•*]\s*)?/, '').trim();
+    const body = line.replace(/^\s*(?:[-\u2022*]\s*)?/, '').trim();
     if (!body) return;
 
     const parsed = parseLine(body);
     if (!parsed.title) return;
 
-    const row = { ...parsed, depth, parentIndex: depth > 0 ? lastAtDepth[0] : null };
-    out.push(row);
+    out.push({ ...parsed, depth, parentIndex: depth > 0 ? lastAtDepth[0] : null });
     lastAtDepth[depth] = out.length - 1;
   });
 
