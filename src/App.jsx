@@ -56,23 +56,44 @@ function Field({ label, children }) {
 
 function SignIn() {
   const [email, setEmail] = useState('');
-  const [state, setState] = useState('idle');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [resetSent, setResetSent] = useState(false);
 
-  async function send() {
-    if (!email.trim()) return;
-    setState('sending');
+  async function submit(e) {
+    e.preventDefault();
+    if (!email.trim() || !password) return;
+    setBusy(true);
     setError(null);
-    const { error } = await supabase.auth.signInWithOtp({
+    const { error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
-      options: { emailRedirectTo: window.location.origin },
+      password,
     });
+    setBusy(false);
     if (error) {
-      setError(error.message);
-      setState('idle');
-    } else {
-      setState('sent');
+      setError(
+        error.message === 'Invalid login credentials'
+          ? 'That email and password don\u2019t match.'
+          : error.message
+      );
     }
+    // On success the auth listener in App swaps the screen out.
+  }
+
+  async function sendReset() {
+    if (!email.trim()) {
+      setError('Enter your email first, then request a reset.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: window.location.origin,
+    });
+    setBusy(false);
+    if (error) setError(error.message);
+    else setResetSent(true);
   }
 
   return (
@@ -83,32 +104,52 @@ function SignIn() {
         Everywhere you've been, and what you did there.
       </p>
 
-      {state === 'sent' ? (
-        <div className="hub-card p-4">
-          <p className="text-sm leading-relaxed">
-            Check <span className="font-medium">{email}</span> for a sign-in link. It's good for about an hour.
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <Field label="Email">
-            <input
-              type="email"
-              inputMode="email"
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && send()}
-              placeholder="you@example.com"
-              className="hub-input w-full px-3 py-2.5 text-base"
-            />
-          </Field>
-          <Button onClick={send} disabled={state === 'sending'}>
-            {state === 'sending' ? 'Sending…' : 'Email me a link'}
+      {/* A real form, so Safari and iOS Keychain offer to save the password */}
+      <form onSubmit={submit} className="space-y-4">
+        <Field label="Email">
+          <input
+            type="email"
+            name="email"
+            inputMode="email"
+            autoComplete="username"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+            className="hub-input w-full px-3 py-2.5 text-base"
+          />
+        </Field>
+
+        <Field label="Password">
+          <input
+            type="password"
+            name="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="hub-input w-full px-3 py-2.5 text-base"
+          />
+        </Field>
+
+        <div className="flex items-center gap-4">
+          <Button type="submit" disabled={busy || !email.trim() || !password}>
+            {busy ? 'Signing in…' : 'Sign in'}
           </Button>
-          {error && <p className="text-sm" style={{ color: '#a33' }}>{error}</p>}
+          <button type="button" onClick={sendReset} className="hub-faint text-xs underline">
+            Forgot password
+          </button>
         </div>
-      )}
+
+        {error && (
+          <p className="text-sm" style={{ color: '#a33' }}>
+            {error}
+          </p>
+        )}
+        {resetSent && (
+          <p className="hub-muted text-sm">
+            Reset link sent to {email}. Open it and you'll be able to set a new password.
+          </p>
+        )}
+      </form>
     </div>
   );
 }
@@ -875,6 +916,11 @@ function Stats({ trips }) {
           </div>
         </>
       )}
+
+      <div className="hub-rule mt-10 mb-4" />
+      <button onClick={() => supabase.auth.signOut()} className="hub-faint text-xs underline">
+        Sign out
+      </button>
     </div>
   );
 }
