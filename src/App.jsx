@@ -8,7 +8,6 @@ import {
   dateRange,
   dayHeading,
   daysUntil,
-  isMappable,
   itemsToText,
   mapsUrl,
   nightsBetween,
@@ -22,49 +21,59 @@ import {
    Icons — small, consistent, stroked in the current text colour
    ========================================================================== */
 
-const ICON_PATHS = {
-  food: 'M7 3v18M5 3v5a2 2 0 0 0 4 0V3M17 3v18M17 3c2.2 1 2.2 5.5 0 6.5',
-  drink: 'M4 5h16l-8 9v5M8.5 19h7',
-  plane: 'M3 12l18-6.5-3.2 6.5 3.2 6.5L3 12Z',
-  route: 'M7 4v11a4 4 0 0 0 4 4h6M14 16l3.5 3-3.5 3',
-  stay: 'M3 18v-5h18v5M3 13V8m18 5v-3a1.5 1.5 0 0 0-1.5-1.5H12V13M7 9.5h2.5',
-  pin: 'M12 21.5S18 15.6 18 10.5a6 6 0 1 0-12 0c0 5.1 6 11 6 11Z',
-  dot: 'M12 11.2a1 1 0 1 0 .01 0',
+const ICONS = {
+  food:  { d: 'M7 3.5v17M5 3.5v4.5a2 2 0 0 0 4 0V3.5M16.5 3.5v17M16.5 3.5c2 1 2 5.5 0 6.5', mode: 'stroke' },
+  drink: { d: 'M4 5.5h16l-8 8.5ZM12 14v5M8.5 19.5h7', mode: 'stroke' },
+  plane: { d: 'M10.5 3.2a1.5 1.5 0 0 1 3 0V9l7.5 4.4v2.3L13.5 13.6v4.1l2.8 1.9v1.6L12 20l-4.3 1.2v-1.6l2.8-1.9v-4.1L3 15.7v-2.3L10.5 9Z', mode: 'fill' },
+  route: { d: 'M6 4v9.5a4 4 0 0 0 4 4h7M14.5 14.5l3.5 3-3.5 3', mode: 'stroke' },
+  stay:  { d: 'M3 18.5v-6h18v6M3 12.5V7m18 5.5v-3a2 2 0 0 0-2-2h-7v5M6.5 10h2.5', mode: 'stroke' },
+  pin:   { d: 'M12 21.5C12 21.5 18.5 15 18.5 10.2A6.5 6.5 0 0 0 5.5 10.2C5.5 15 12 21.5 12 21.5Z', mode: 'fill' },
+  dot:   { d: '', mode: 'dot' },
 };
 
 function Icon({ name, size = 14 }) {
-  const d = ICON_PATHS[name] || ICON_PATHS.pin;
-  const filled = name === 'pin';
+  const icon = ICONS[name] || ICONS.dot;
+  const common = {
+    viewBox: '0 0 24 24',
+    width: size,
+    height: size,
+    'aria-hidden': true,
+    style: { flexShrink: 0, display: 'block' },
+  };
+
+  if (icon.mode === 'dot') {
+    return (
+      <svg {...common}>
+        <circle cx="12" cy="12" r="2.6" fill="currentColor" />
+      </svg>
+    );
+  }
+
+  if (icon.mode === 'fill') {
+    return (
+      <svg {...common}>
+        <path d={icon.d} fill="currentColor" />
+        {name === 'pin' && <circle cx="12" cy="10" r="2.3" fill="var(--cream)" />}
+      </svg>
+    );
+  }
+
   return (
-    <svg
-      viewBox="0 0 24 24"
-      width={size}
-      height={size}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.7}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      style={{ flexShrink: 0 }}
-    >
-      <path d={d} />
-      {name === 'pin' && <circle cx="12" cy="10.4" r="2.2" />}
+    <svg {...common} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d={icon.d} />
     </svg>
   );
 }
 
-/** Which icon a line gets. Travel splits into flights and everything else. */
+/** Icon for a line. Flights get a plane, other travel a route arrow. */
 function iconFor(item) {
   const t = (item.title || '').toLowerCase();
-  if (item.kind === 'travel' || /^(fly|flight)\b/.test(t)) {
-    if (/\b(fly|flight|airport|plane)\b/.test(t)) return 'plane';
-    return 'route';
-  }
+  if (/\b(fly|flight|plane|airport)\b/.test(t)) return 'plane';
+  if (item.kind === 'travel') return 'route';
   if (item.kind === 'food') return 'food';
   if (item.kind === 'drink') return 'drink';
   if (item.kind === 'stay') return 'stay';
-  return isMappable(item) ? 'pin' : 'dot';
+  return 'dot';
 }
 
 /* ==========================================================================
@@ -332,40 +341,44 @@ function SignIn() {
    Item row
    ========================================================================== */
 
-function ItemRow({ item, city, depth = 0 }) {
-  const url = mapsUrl(item, city);
-  const icon = iconFor(item);
-
-  const body = (
-    <>
-      <span className="hub-faint mt-0.5">
-        <Icon name={icon} />
-      </span>
-      <span className="flex-1 min-w-0">
-        <span className={url ? 'underline decoration-dotted underline-offset-2' : ''}>
-          {item.title}
-        </span>
-        {item.time_label && (
-          <span className="hub-faint text-xs ml-2 whitespace-nowrap">{item.time_label}</span>
-        )}
-        {item.notes && (
-          <span className="block hub-muted text-xs leading-snug mt-0.5 italic">{item.notes}</span>
-        )}
-      </span>
-    </>
-  );
-
-  const wrap = depth > 0 ? { marginLeft: '18px', paddingLeft: '10px', borderLeft: '1px solid var(--navy-10)' } : {};
+function ItemRow({ item, city, depth = 0, onToggleLink }) {
+  // Explicit only: an item links to Maps when it's been marked as a place.
+  // Nothing is guessed, so "walk round El Nido" stays plain unless you say so.
+  const linked = item.mappable === true || !!item.maps_url;
+  const url = linked ? mapsUrl(item, city) : null;
+  const icon = linked ? 'pin' : iconFor(item);
 
   return (
-    <div style={wrap}>
-      {url ? (
-        <a href={url} target="_blank" rel="noreferrer" className="flex gap-2 py-1 text-sm items-start">
-          {body}
-        </a>
-      ) : (
-        <div className="flex gap-2 py-1 text-sm items-start">{body}</div>
-      )}
+    <div
+      style={depth > 0 ? { marginLeft: '18px', paddingLeft: '10px', borderLeft: '1px solid var(--navy-10)' } : undefined}
+    >
+      <div className="flex gap-2 py-1 text-sm items-start group">
+        <span className={linked ? '' : 'hub-faint'} style={{ marginTop: '2px' }}>
+          <Icon name={icon} />
+        </span>
+
+        <span className="flex-1 min-w-0">
+          {url ? (
+            <a href={url} target="_blank" rel="noreferrer" className="underline decoration-dotted underline-offset-2">
+              {item.title}
+            </a>
+          ) : (
+            <span>{item.title}</span>
+          )}
+          {item.time_label && <span className="hub-faint text-xs ml-2 whitespace-nowrap">{item.time_label}</span>}
+          {item.notes && <span className="block hub-muted text-xs leading-snug mt-0.5 italic">{item.notes}</span>}
+        </span>
+
+        <button
+          onClick={() => onToggleLink(item, !linked)}
+          title={linked ? 'Remove the map link' : 'Link this to Google Maps'}
+          aria-label={linked ? `Unlink ${item.title}` : `Link ${item.title} to Google Maps`}
+          className="shrink-0 opacity-40 hover:opacity-100 focus:opacity-100"
+          style={{ color: linked ? 'var(--navy)' : 'var(--navy-45)', marginTop: '2px' }}
+        >
+          <Icon name="pin" size={12} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -622,6 +635,15 @@ function TripDetail({ trip, onBack, onReload, userId, knownCities }) {
     await onReload();
   }
 
+  async function toggleLink(item, next) {
+    const { error } = await supabase.from('items').update({ mappable: next }).eq('id', item.id);
+    if (error) {
+      alert(`Couldn't update that: ${error.message}`);
+      return;
+    }
+    await onReload();
+  }
+
   const cityFor = (day) => day.city || trip.city || trip.title;
 
   return (
@@ -728,9 +750,15 @@ function TripDetail({ trip, onBack, onReload, userId, knownCities }) {
                 <div>
                   {roots.map((item) => (
                     <React.Fragment key={item.id}>
-                      <ItemRow item={item} city={cityFor(day)} />
+                      <ItemRow item={item} city={cityFor(day)} onToggleLink={toggleLink} />
                       {childrenOf(item.id).map((child) => (
-                        <ItemRow key={child.id} item={child} city={cityFor(day)} depth={1} />
+                        <ItemRow
+                          key={child.id}
+                          item={child}
+                          city={cityFor(day)}
+                          depth={1}
+                          onToggleLink={toggleLink}
+                        />
                       ))}
                     </React.Fragment>
                   ))}
@@ -1066,20 +1094,26 @@ function Upcoming({ trips, onOpen, onReload, userId, knownCities }) {
    World map — precomputed country outlines, no mapping library needed
    ========================================================================== */
 
-function WorldMap({ countries }) {
-  const [touched, setTouched] = useState(null);
+function WorldMap({ trips, onOpen }) {
+  const [picked, setPicked] = useState(null);
 
-  const visited = useMemo(() => {
+  // country code -> the trips that went there
+  const byCode = useMemo(() => {
     const m = new Map();
-    countries.forEach(([name, n]) => {
-      const code = countryCode(name);
-      if (!code) return;
-      // Scotland etc. sit inside GB on the world outline
-      const key = code.includes('-') ? code.split('-')[0].toUpperCase() : code;
-      m.set(key, { name, n });
+    trips.forEach((t) => {
+      countriesOf(t).forEach((name) => {
+        const raw = countryCode(name);
+        if (!raw) return;
+        const code = raw.includes('-') ? raw.split('-')[0].toUpperCase() : raw;
+        if (!m.has(code)) m.set(code, { names: new Set(), trips: [] });
+        m.get(code).names.add(name);
+        m.get(code).trips.push(t);
+      });
     });
     return m;
-  }, [countries]);
+  }, [trips]);
+
+  const hit = picked ? byCode.get(picked) : null;
 
   return (
     <div>
@@ -1087,27 +1121,59 @@ function WorldMap({ countries }) {
         viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`}
         width="100%"
         role="img"
-        aria-label={`World map with ${visited.size} countries visited`}
+        aria-label={`World map, ${byCode.size} countries visited`}
         style={{ display: 'block' }}
       >
         {Object.entries(COUNTRY_PATHS).map(([code, d]) => {
-          const hit = visited.get(code);
+          const visited = byCode.has(code);
+          const active = picked === code;
           return (
             <path
               key={code}
               d={d}
-              fill={hit ? 'var(--navy)' : 'var(--navy-10)'}
+              fill={active ? 'var(--amber)' : visited ? 'var(--navy)' : 'var(--navy-10)'}
               stroke="var(--cream)"
               strokeWidth="0.4"
-              onClick={hit ? () => setTouched(hit.name) : undefined}
-              style={{ cursor: hit ? 'pointer' : 'default' }}
-            />
+              onClick={visited ? () => setPicked(active ? null : code) : undefined}
+              style={{ cursor: visited ? 'pointer' : 'default' }}
+            >
+              {visited && <title>{[...byCode.get(code).names].join(', ')}</title>}
+            </path>
           );
         })}
       </svg>
-      <p className="hub-faint text-xs mt-1" style={{ minHeight: '1.2em' }}>
-        {touched || `${visited.size} countries`}
-      </p>
+
+      {hit ? (
+        <div className="hub-card p-3 mt-2">
+          <div className="flex items-center justify-between mb-2">
+            <span className="flex items-center gap-2">
+              <Flag country={[...hit.names][0]} size={20} />
+              <span className="text-sm font-medium">{[...hit.names].join(', ')}</span>
+            </span>
+            <button onClick={() => setPicked(null)} className="hub-faint text-xs" aria-label="Close">
+              ×
+            </button>
+          </div>
+          {[...new Set(hit.trips)]
+            .sort((a, b) => (b.start_date || '').localeCompare(a.start_date || ''))
+            .map((t) => (
+              <button
+                key={t.id}
+                onClick={() => onOpen(t)}
+                className="w-full text-left py-1.5 flex items-baseline justify-between gap-3 border-b hub-border"
+              >
+                <span className="text-sm">{t.title}</span>
+                <span className="hub-faint text-xs shrink-0">
+                  {dateRange(t.start_date, t.end_date)}
+                </span>
+              </button>
+            ))}
+        </div>
+      ) : (
+        <p className="hub-faint text-xs mt-2">
+          {byCode.size} countries — tap one to see the trips.
+        </p>
+      )}
     </div>
   );
 }
@@ -1190,7 +1256,7 @@ function Bar({ label, value, max, note }) {
   );
 }
 
-function Stats({ trips }) {
+function Stats({ trips, onOpen }) {
   const past = useMemo(() => trips.filter((t) => t.start_date <= todayISO()), [trips]);
   const [openYear, setOpenYear] = useState(null);
 
@@ -1239,7 +1305,7 @@ function Stats({ trips }) {
       <div className="hub-rule mb-4" />
       <p className="hub-eyebrow mb-3">Where you've been</p>
       <div className="mb-8">
-        <WorldMap countries={stats.countries} />
+        <WorldMap trips={past} onOpen={onOpen} />
       </div>
 
       <div className="hub-rule mb-4" />
@@ -1378,7 +1444,7 @@ export default function App() {
             onReload={load}
           />
         ) : (
-          <Stats trips={trips} />
+          <Stats trips={trips} onOpen={(t) => setOpenId(t.id)} />
         )}
       </main>
 
