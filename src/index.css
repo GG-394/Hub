@@ -119,13 +119,15 @@ input[type='date'] {
   overflow-y: auto;
 }
 
-.hub-scroll::-webkit-scrollbar {
-  width: 6px;
+/* Hidden: the container also holds the brand bar and the sticky header, so a
+   visible bar reads as if the frozen panes were scrolling. */
+.hub-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
-.hub-scroll::-webkit-scrollbar-thumb {
-  background-color: var(--navy-20);
-  border-radius: 3px;
+.hub-scroll::-webkit-scrollbar {
+  display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
