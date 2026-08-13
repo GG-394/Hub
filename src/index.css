@@ -97,13 +97,15 @@ select {
   font-size: 16px !important;
 }
 
-/* native date controls have a wide intrinsic size and burst their container */
+/* Keep the native date control (removing its appearance collapses it to a
+   sliver on iOS) but stop it bursting its container. */
 input[type='date'] {
-  -webkit-appearance: none;
-  appearance: none;
   width: 100%;
   min-width: 0;
   max-width: 100%;
+  min-height: 42px;
+  box-sizing: border-box;
+  font-family: inherit;
 }
 
 /* Keyboard focus stays visible everywhere */
