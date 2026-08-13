@@ -457,7 +457,7 @@ function ItemRow({ item, city, depth = 0, onToggleLink }) {
    Day editor
    ========================================================================== */
 
-function DayEditor({ day, items, onSave, onCancel, knownCities }) {
+function DayEditor({ day, items, onSave, onCancel, knownCities, previousStay }) {
   const [text, setText] = useState(() => itemsToText(items) || '- ');
   const [city, setCity] = useState(day.city || '');
   const [stay, setStay] = useState(day.stay || '');
@@ -578,6 +578,14 @@ function DayEditor({ day, items, onSave, onCancel, knownCities }) {
             placeholder="Hotel María Cristina"
             className="hub-input w-full px-2 py-1.5"
           />
+          {previousStay && previousStay !== stay && (
+            <button
+              onClick={() => setStay(previousStay)}
+              className="hub-faint text-xs underline mt-1"
+            >
+              same as {previousStay}
+            </button>
+          )}
         </Field>
       </div>
 
@@ -651,6 +659,8 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
   const [newDayDate, setNewDayDate] = useState(trip.end_date || trip.start_date);
   const [showNotes, setShowNotes] = useState(false);
   const [editingNotes, setEditingNotes] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState(trip.title);
   const [notesDraft, setNotesDraft] = useState(trip.notes || '');
   // What the card shows today: either the manual list or the derived cities.
   // Editing writes it back explicitly, so removing a tag persists.
@@ -684,6 +694,18 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
       alert(`Couldn't save that: ${error.message}`);
       return;
     }
+    await onReload();
+  }
+
+  async function saveName() {
+    const next = nameDraft.trim();
+    if (!next) return;
+    const { error } = await supabase.from('trips').update({ title: next }).eq('id', trip.id);
+    if (error) {
+      alert(`Couldn't rename that: ${error.message}`);
+      return;
+    }
+    setEditingName(false);
     await onReload();
   }
 
@@ -771,6 +793,36 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
     <div className="min-h-full">
       <div className="px-5 pt-4">
         <div className="mb-3">
+          <p className="hub-eyebrow mb-1.5">Trip name</p>
+          {editingName ? (
+            <div className="flex items-center gap-2">
+              <input
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && saveName()}
+                autoFocus
+                className="hub-input flex-1 px-2 py-1"
+              />
+              <Button onClick={saveName}>Save</Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setNameDraft(trip.title);
+                  setEditingName(false);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <button onClick={() => setEditingName(true)} className="text-sm">
+              {trip.title}
+              <span className="hub-faint text-xs underline ml-2">edit</span>
+            </button>
+          )}
+        </div>
+
+        <div className="mb-3">
           <p className="hub-eyebrow mb-1.5">Who came</p>
           <Tags
             value={trip.companions}
@@ -850,6 +902,7 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
                   day={day}
                   items={items}
                   knownCities={knownCities}
+                  previousStay={dayIndex > 0 ? days[dayIndex - 1].stay : null}
                   onSave={(rows, fields) => saveDay(day, rows, fields)}
                   onCancel={() => setEditingDay(null)}
                 />
@@ -1572,6 +1625,7 @@ export default function App() {
   const [query, setQuery] = useState('');
   const [years, setYears] = useState([]);
   const sectionRefs = useRef({});
+  const scrollRef = useRef(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -1598,6 +1652,12 @@ export default function App() {
   useEffect(() => {
     if (session) load();
   }, [session, load]);
+
+  // The scroll container is reused across views, so reset it or a trip opens
+  // part-way down wherever the previous list happened to be.
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [openId, tab]);
 
   const { past, upcoming } = useMemo(() => {
     const t = todayISO();
@@ -1634,7 +1694,7 @@ export default function App() {
         backgroundColor: 'var(--cream)',
       }}
     >
-      <main className="flex-1 hub-scroll" style={{ minHeight: 0 }}>
+      <main ref={scrollRef} className="flex-1 hub-scroll" style={{ minHeight: 0 }}>
         {/* scrolls away; the header below it stays put */}
         <BrandBar />
 
