@@ -19,6 +19,16 @@ body {
   color: var(--navy);
 }
 
+/* The shell sizes itself with dvh; body must not scroll or the tab bar
+   drifts off the bottom of the screen on iOS. */
+body {
+  overflow: hidden;
+}
+
+#root {
+  height: 100%;
+}
+
 body {
   font-family: Inter, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
