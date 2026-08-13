@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './supabase';
 import { COUNTRY_NAMES, countryCode } from './countries';
+import { COUNTRY_PATHS, MAP_HEIGHT, MAP_WIDTH } from './worldPaths';
 import {
   countriesOf,
+  parseISO,
   dateRange,
   dayHeading,
   daysUntil,
@@ -629,11 +631,11 @@ function TripDetail({ trip, onBack, onReload, userId, knownCities }) {
           ← Back
         </button>
 
-        <div className="flex items-start justify-between gap-3 mb-2">
-          <p className="hub-eyebrow">{dateRange(trip.start_date, trip.end_date)}</p>
-          <Flags trip={trip} />
-        </div>
-        <h1 className="hub-display text-4xl leading-tight mb-2">{trip.title}</h1>
+        <p className="hub-eyebrow mb-2">{dateRange(trip.start_date, trip.end_date)}</p>
+        <h1 className="hub-display text-4xl leading-tight mb-2 flex items-baseline gap-2.5 flex-wrap">
+          {trip.title}
+          <Flags trip={trip} size={22} />
+        </h1>
         <p className="hub-muted text-xs">
           {countriesOf(trip).join(' · ') || '—'}
           {nights ? ` · ${nights} night${nights === 1 ? '' : 's'}` : ''}
@@ -676,7 +678,7 @@ function TripDetail({ trip, onBack, onReload, userId, knownCities }) {
           </div>
         )}
 
-        {days.map((day) => {
+        {days.map((day, dayIndex) => {
           const items = [...(day.items || [])].sort((a, b) => a.sort_order - b.sort_order);
           const roots = items.filter((i) => !i.parent_id);
           const childrenOf = (id) => items.filter((i) => i.parent_id === id);
@@ -704,9 +706,11 @@ function TripDetail({ trip, onBack, onReload, userId, knownCities }) {
                       Edit
                     </button>
                   )}
-                  <button onClick={() => deleteDay(day)} className="hub-faint text-xs">
-                    Delete
-                  </button>
+                  {dayIndex === days.length - 1 && (
+                    <button onClick={() => deleteDay(day)} className="hub-faint text-xs">
+                      Delete
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -819,15 +823,18 @@ function TripCard({ trip, onOpen, showCountdown }) {
   return (
     <button onClick={() => onOpen(trip)} className="w-full text-left hub-card p-4 mb-3">
       <div className="flex items-start justify-between gap-3">
-        <span className="hub-display text-2xl leading-tight">{trip.title}</span>
-        <span className="flex items-center gap-2 shrink-0">
-          <Flags trip={trip} />
-          {away != null && (
-            <span className="hub-eyebrow">
-              {away === 0 ? 'today' : away === 1 ? 'tomorrow' : `${away}d`}
-            </span>
-          )}
+        <span className="flex items-baseline gap-2 min-w-0">
+          <span className="hub-display text-2xl leading-tight">{trip.title}</span>
+          <Flags trip={trip} size={17} />
         </span>
+        {away != null && (
+          <span className="text-right shrink-0 leading-none">
+            <span className="hub-display text-3xl" style={{ color: 'var(--navy)' }}>
+              {away === 0 ? 'Today' : away === 1 ? '1' : away}
+            </span>
+            {away > 1 && <span className="hub-eyebrow block mt-1">days to go</span>}
+          </span>
+        )}
       </div>
 
       <p className="hub-muted text-xs mt-1">
@@ -1056,6 +1063,117 @@ function Upcoming({ trips, onOpen, onReload, userId, knownCities }) {
 }
 
 /* ==========================================================================
+   World map — precomputed country outlines, no mapping library needed
+   ========================================================================== */
+
+function WorldMap({ countries }) {
+  const [touched, setTouched] = useState(null);
+
+  const visited = useMemo(() => {
+    const m = new Map();
+    countries.forEach(([name, n]) => {
+      const code = countryCode(name);
+      if (!code) return;
+      // Scotland etc. sit inside GB on the world outline
+      const key = code.includes('-') ? code.split('-')[0].toUpperCase() : code;
+      m.set(key, { name, n });
+    });
+    return m;
+  }, [countries]);
+
+  return (
+    <div>
+      <svg
+        viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`}
+        width="100%"
+        role="img"
+        aria-label={`World map with ${visited.size} countries visited`}
+        style={{ display: 'block' }}
+      >
+        {Object.entries(COUNTRY_PATHS).map(([code, d]) => {
+          const hit = visited.get(code);
+          return (
+            <path
+              key={code}
+              d={d}
+              fill={hit ? 'var(--navy)' : 'var(--navy-10)'}
+              stroke="var(--cream)"
+              strokeWidth="0.4"
+              onClick={hit ? () => setTouched(hit.name) : undefined}
+              style={{ cursor: hit ? 'pointer' : 'default' }}
+            />
+          );
+        })}
+      </svg>
+      <p className="hub-faint text-xs mt-1" style={{ minHeight: '1.2em' }}>
+        {touched || `${visited.size} countries`}
+      </p>
+    </div>
+  );
+}
+
+/* ==========================================================================
+   Year calendar — every day away, shaded
+   ========================================================================== */
+
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function YearCalendar({ year, trips }) {
+  const away = useMemo(() => {
+    const set = new Map();
+    trips.forEach((t) => {
+      const s = parseISO(t.start_date);
+      const e = parseISO(t.end_date) || s;
+      if (!s) return;
+      for (const d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
+        if (d.getFullYear() !== year) continue;
+        set.set(`${d.getMonth()}-${d.getDate()}`, t.title);
+      }
+    });
+    return set;
+  }, [trips, year]);
+
+  return (
+    <div
+      className="grid gap-4 mt-3"
+      style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(94px, 1fr))' }}
+    >
+      {MONTH_NAMES.map((name, m) => {
+        const first = new Date(year, m, 1);
+        const lead = (first.getDay() + 6) % 7; // weeks start Monday
+        const total = new Date(year, m + 1, 0).getDate();
+        const cells = [...Array(lead).fill(null), ...Array.from({ length: total }, (_, i) => i + 1)];
+        return (
+          <div key={name}>
+            <p className="hub-eyebrow mb-1">{name}</p>
+            <div className="grid" style={{ gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px' }}>
+              {cells.map((day, idx) => {
+                const trip = day ? away.get(`${m}-${day}`) : null;
+                return (
+                  <span
+                    key={idx}
+                    title={trip || undefined}
+                    style={{
+                      aspectRatio: '1',
+                      borderRadius: '1px',
+                      backgroundColor: !day
+                        ? 'transparent'
+                        : trip
+                        ? 'var(--navy)'
+                        : 'var(--navy-10)',
+                    }}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ==========================================================================
    Stats
    ========================================================================== */
 
@@ -1074,6 +1192,7 @@ function Bar({ label, value, max, note }) {
 
 function Stats({ trips }) {
   const past = useMemo(() => trips.filter((t) => t.start_date <= todayISO()), [trips]);
+  const [openYear, setOpenYear] = useState(null);
 
   const stats = useMemo(() => {
     const perYear = new Map();
@@ -1118,16 +1237,33 @@ function Stats({ trips }) {
       </div>
 
       <div className="hub-rule mb-4" />
+      <p className="hub-eyebrow mb-3">Where you've been</p>
+      <div className="mb-8">
+        <WorldMap countries={stats.countries} />
+      </div>
+
+      <div className="hub-rule mb-4" />
       <p className="hub-eyebrow mb-2">Trips per year</p>
+      <p className="hub-faint text-xs mb-2">Tap a year to see the days away.</p>
       <div className="mb-8">
         {stats.perYear.map(([year, v]) => (
-          <Bar
-            key={year}
-            label={String(year).slice(2)}
-            value={v.trips}
-            max={maxTrips}
-            note={`${v.trips} · ${v.nights}n`}
-          />
+          <div key={year}>
+            <button
+              onClick={() => setOpenYear(openYear === year ? null : year)}
+              className="w-full text-left"
+              aria-expanded={openYear === year}
+            >
+              <Bar
+                label={String(year).slice(2)}
+                value={v.trips}
+                max={maxTrips}
+                note={`${v.trips} · ${v.nights}n`}
+              />
+            </button>
+            {openYear === year && (
+              <YearCalendar year={year} trips={past.filter((t) => yearOf(t.start_date) === year || yearOf(t.end_date) === year)} />
+            )}
+          </div>
         ))}
       </div>
 
