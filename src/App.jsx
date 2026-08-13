@@ -33,6 +33,7 @@ const ICONS = {
   archive:  { d: 'M3.5 7.5h17v3.5h-17zM5.5 11v9h13v-9M9.5 14.5h5', mode: 'stroke' },
   calendar: { d: 'M4 6.5h16V20H4zM4 10.5h16M8.5 3.5v4M15.5 3.5v4', mode: 'stroke' },
   chart:    { d: 'M3.5 20.5h17M7 20.5v-6.5M12 20.5V6.5M17 20.5v-9.5', mode: 'stroke' },
+  people:   { d: 'M2.5 20.5v-1.8a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v1.8M8.5 10.5a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4M16.5 4.4a3.2 3.2 0 0 1 0 6.2M21.5 20.5v-1.8a4 4 0 0 0-3-3.85', mode: 'stroke' },
 };
 
 function Icon({ name, size = 14 }) {
@@ -201,7 +202,7 @@ function Flags({ trip, size = 18 }) {
  * Editable chips. Used for companions and for the card summary, so both can be
  * pruned one tag at a time.
  */
-function Tags({ value, onSave, placeholder, addLabel, extraAction }) {
+function Tags({ value, onSave, placeholder, addLabel, extraAction, reorder }) {
   const list = (value || '')
     .split(/\s*[;\u00b7]\s*|\s*,\s*/)
     .map((s) => s.trim())
@@ -210,6 +211,13 @@ function Tags({ value, onSave, placeholder, addLabel, extraAction }) {
   const [open, setOpen] = useState(false);
 
   const commit = (next) => onSave(next.join(', '));
+
+  function move(index, dir) {
+    const next = [...list];
+    const [item] = next.splice(index, 1);
+    next.splice(index + dir, 0, item);
+    commit(next);
+  }
 
   function add() {
     const name = draft.trim().replace(/[,;]$/, '');
@@ -221,13 +229,33 @@ function Tags({ value, onSave, placeholder, addLabel, extraAction }) {
   return (
     <div>
       <div className="flex flex-wrap items-center gap-1.5">
-        {list.map((p) => (
+        {list.map((p, i) => (
           <span
             key={p}
             className="inline-flex items-center gap-1.5 px-2 py-0.5 text-xs rounded-sm"
             style={{ backgroundColor: 'var(--navy-10)' }}
           >
+            {reorder && i > 0 && (
+              <button
+                onClick={() => move(i, -1)}
+                aria-label={`Move ${p} earlier`}
+                className="hub-faint"
+                style={{ lineHeight: 1, fontSize: '12px' }}
+              >
+                ‹
+              </button>
+            )}
             {p}
+            {reorder && i < list.length - 1 && (
+              <button
+                onClick={() => move(i, 1)}
+                aria-label={`Move ${p} later`}
+                className="hub-faint"
+                style={{ lineHeight: 1, fontSize: '12px' }}
+              >
+                ›
+              </button>
+            )}
             <button
               onClick={() => commit(list.filter((x) => x !== p))}
               aria-label={`Remove ${p}`}
@@ -540,7 +568,7 @@ function DayEditor({ day, items, onSave, onCancel, knownCities }) {
             onChange={(e) => setCity(e.target.value)}
             list="hub-cities"
             placeholder="San Sebastián"
-            className="hub-input w-full px-2 py-1.5 text-sm"
+            className="hub-input w-full px-2 py-1.5"
           />
         </Field>
         <Field label="Staying at">
@@ -548,7 +576,7 @@ function DayEditor({ day, items, onSave, onCancel, knownCities }) {
             value={stay}
             onChange={(e) => setStay(e.target.value)}
             placeholder="Hotel María Cristina"
-            className="hub-input w-full px-2 py-1.5 text-sm"
+            className="hub-input w-full px-2 py-1.5"
           />
         </Field>
       </div>
@@ -560,8 +588,8 @@ function DayEditor({ day, items, onSave, onCancel, knownCities }) {
         onKeyDown={onKeyDown}
         rows={Math.max(6, text.split('\n').length + 1)}
         spellCheck="false"
-        className="hub-input w-full px-3 py-2 text-sm leading-relaxed"
-        style={{ whiteSpace: 'pre', overflowWrap: 'normal', overflowX: 'auto' }}
+        className="hub-input w-full px-3 py-2 leading-relaxed"
+        style={{ whiteSpace: 'pre', overflowWrap: 'normal', overflowX: 'auto', fontSize: '16px' }}
       />
 
       <p className="hub-faint text-xs mt-2 leading-relaxed">
@@ -591,7 +619,16 @@ function DayEditor({ day, items, onSave, onCancel, knownCities }) {
 function TripHeader({ trip, onBack }) {
   const nights = nightsBetween(trip.start_date, trip.end_date);
   return (
-    <div className="px-5 pt-3 pb-2.5 shrink-0" style={{ borderBottom: '1px solid var(--navy-10)' }}>
+    <div
+      className="px-5 pt-3 pb-2.5"
+      style={{
+        position: 'sticky',
+        top: 0,
+        zIndex: 20,
+        backgroundColor: 'var(--cream)',
+        borderBottom: '1px solid var(--navy-10)',
+      }}
+    >
       <button onClick={onBack} className="hub-muted text-sm mb-1.5">
         ← Back
       </button>
@@ -601,7 +638,7 @@ function TripHeader({ trip, onBack }) {
       </div>
       <p className="hub-faint text-xs mt-0.5">
         {dateRange(trip.start_date, trip.end_date)}
-        {nights ? ` · ${nights}n` : ''}
+        {nights ? ` · ${nights} ${nights === 1 ? 'night' : 'nights'}` : ''}
         {trip.companions ? ` · ${trip.companions}` : ''}
       </p>
     </div>
@@ -613,6 +650,8 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
   const [addingDay, setAddingDay] = useState(false);
   const [newDayDate, setNewDayDate] = useState(trip.end_date || trip.start_date);
   const [showNotes, setShowNotes] = useState(false);
+  const [editingNotes, setEditingNotes] = useState(false);
+  const [notesDraft, setNotesDraft] = useState(trip.notes || '');
   // What the card shows today: either the manual list or the derived cities.
   // Editing writes it back explicitly, so removing a tag persists.
   const summaryTags = useMemo(() => tripPlaces(trip, 12), [trip]);
@@ -645,6 +684,19 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
       alert(`Couldn't save that: ${error.message}`);
       return;
     }
+    await onReload();
+  }
+
+  async function saveNotes() {
+    const { error } = await supabase
+      .from('trips')
+      .update({ notes: notesDraft.trim() || null })
+      .eq('id', trip.id);
+    if (error) {
+      alert(`Couldn't save the notes: ${error.message}`);
+      return;
+    }
+    setEditingNotes(false);
     await onReload();
   }
 
@@ -740,6 +792,7 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
             onSave={saveSummary}
             placeholder="City or area, then Enter"
             addLabel="+ add a place"
+            reorder
           />
         </div>
       </div>
@@ -832,7 +885,7 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
                   type="date"
                   value={newDayDate || ''}
                   onChange={(e) => setNewDayDate(e.target.value)}
-                  className="hub-input px-3 py-2 text-sm"
+                  className="hub-input px-3 py-2"
                 />
               </Field>
               <div className="flex gap-2 mt-3">
@@ -848,15 +901,46 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
             </button>
           ))}
 
-        {trip.notes && (
-          <div className="mt-10">
-            <div className="hub-rule mb-4" />
+        <div className="mt-10">
+          <div className="hub-rule mb-4" />
+          <div className="flex items-center justify-between mb-2">
             <button onClick={() => setShowNotes((v) => !v)} className="hub-eyebrow flex items-center gap-2">
-              Notes &amp; recommendations
+              Miscellaneous notes
               <span aria-hidden="true">{showNotes ? '−' : '+'}</span>
             </button>
-            {showNotes && (
-              <div className="mt-3 text-sm leading-relaxed hub-muted space-y-1">
+            {showNotes && !editingNotes && (
+              <button onClick={() => setEditingNotes(true)} className="hub-faint text-xs underline">
+                {trip.notes ? 'Edit' : 'Add'}
+              </button>
+            )}
+          </div>
+
+          {showNotes && (
+            editingNotes ? (
+              <div>
+                <textarea
+                  value={notesDraft}
+                  onChange={(e) => setNotesDraft(e.target.value)}
+                  rows={Math.max(8, notesDraft.split('\n').length + 1)}
+                  className="hub-input w-full px-3 py-2 leading-relaxed"
+                  style={{ fontSize: '16px' }}
+                  placeholder={'Anything worth keeping — links, places to try next time.\nWrap a line in ** to make it a heading.'}
+                />
+                <div className="flex gap-2 mt-2">
+                  <Button onClick={saveNotes}>Save notes</Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setNotesDraft(trip.notes || '');
+                      setEditingNotes(false);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : trip.notes ? (
+              <div className="text-sm leading-relaxed hub-muted space-y-1">
                 {trip.notes.split('\n').map((line, i) => {
                   const bold = line.match(/^\*\*(.+)\*\*$/);
                   if (bold) {
@@ -887,9 +971,11 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
                   return <p key={i}>{line.replace(/^-\s*/, '· ')}</p>;
                 })}
               </div>
-            )}
-          </div>
-        )}
+            ) : (
+              <p className="hub-faint text-sm italic">Nothing yet.</p>
+            )
+          )}
+        </div>
       </div>
     </div>
   );
@@ -921,11 +1007,19 @@ function TripCard({ trip, onOpen, showCountdown }) {
         )}
       </div>
 
-      <p className="hub-muted text-xs mt-1">
-        {dateRange(trip.start_date, trip.end_date)}
-        {nights ? ` · ${nights}n` : ''}
-        {trip.companions ? ` · ${trip.companions}` : ''}
-      </p>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 hub-muted text-xs">
+        <span className="inline-flex items-center gap-1.5">
+          <Icon name="calendar" size={12} />
+          {dateRange(trip.start_date, trip.end_date)}
+          {nights ? ` · ${nights} ${nights === 1 ? 'night' : 'nights'}` : ''}
+        </span>
+        {trip.companions && (
+          <span className="inline-flex items-center gap-1.5">
+            <Icon name="people" size={12} />
+            {trip.companions}
+          </span>
+        )}
+      </div>
 
       {places.length > 0 && (
         <p className="text-xs mt-2.5 leading-relaxed hub-muted">{places.join(' · ')}</p>
@@ -942,7 +1036,16 @@ function TripCard({ trip, onOpen, showCountdown }) {
  *  they can't slide away. This renders the list only. */
 function ArchiveHeader({ query, setQuery, years, onJump }) {
   return (
-    <div className="px-5 pt-3 pb-2.5 shrink-0" style={{ borderBottom: '1px solid var(--navy-10)' }}>
+    <div
+      className="px-5 pt-3 pb-2.5"
+      style={{
+        position: 'sticky',
+        top: 0,
+        zIndex: 20,
+        backgroundColor: 'var(--cream)',
+        borderBottom: '1px solid var(--navy-10)',
+      }}
+    >
       <h1 className="hub-display text-2xl mb-2">Been there</h1>
       <input
         type="search"
@@ -1040,7 +1143,7 @@ function Archive({ trips, onOpen, query, sectionRefs, onYears }) {
                 sectionRefs.current[year] = el;
               }}
               className="mb-7"
-              style={{ scrollMarginTop: '8px' }}
+              style={{ scrollMarginTop: '120px' }}
             >
               <div className="flex items-center gap-3 mb-2.5">
                 <h2 className="hub-display text-2xl leading-none">{year || '—'}</h2>
@@ -1064,7 +1167,7 @@ function Archive({ trips, onOpen, query, sectionRefs, onYears }) {
 
 function Upcoming({ trips, onOpen, onReload, userId, knownCities }) {
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ title: '', country: '', start_date: '', end_date: '', companions: '' });
+  const [form, setForm] = useState({ title: '', city: '', country: '', start_date: '', end_date: '', companions: '' });
   const [saving, setSaving] = useState(false);
 
   async function save() {
@@ -1073,7 +1176,7 @@ function Upcoming({ trips, onOpen, onReload, userId, knownCities }) {
     const { error } = await supabase.from('trips').insert({
       user_id: userId,
       title: form.title.trim(),
-      city: form.title.includes('/') ? null : form.title.trim(),
+      city: form.city.trim() || null,
       country: form.country.trim() || null,
       start_date: form.start_date,
       end_date: form.end_date || null,
@@ -1084,7 +1187,7 @@ function Upcoming({ trips, onOpen, onReload, userId, knownCities }) {
       alert(`Couldn't add that trip: ${error.message}`);
       return;
     }
-    setForm({ title: '', country: '', start_date: '', end_date: '', companions: '' });
+    setForm({ title: '', city: '', country: '', start_date: '', end_date: '', companions: '' });
     setAdding(false);
     await onReload();
   }
@@ -1531,23 +1634,24 @@ export default function App() {
         backgroundColor: 'var(--cream)',
       }}
     >
-      <BrandBar />
-
-      {open ? (
-        <TripHeader trip={open} onBack={() => setOpenId(null)} />
-      ) : tab === 'archive' ? (
-        <ArchiveHeader
-          query={query}
-          setQuery={setQuery}
-          years={years}
-          onJump={(year) => {
-            const el = sectionRefs.current[year];
-            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }}
-        />
-      ) : null}
-
       <main className="flex-1 hub-scroll" style={{ minHeight: 0 }}>
+        {/* scrolls away; the header below it stays put */}
+        <BrandBar />
+
+        {open ? (
+          <TripHeader trip={open} onBack={() => setOpenId(null)} />
+        ) : tab === 'archive' ? (
+          <ArchiveHeader
+            query={query}
+            setQuery={setQuery}
+            years={years}
+            onJump={(year) => {
+              const el = sectionRefs.current[year];
+              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }}
+          />
+        ) : null}
+
         {open ? (
           <TripDetail
             trip={open}
