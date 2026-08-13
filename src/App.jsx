@@ -30,6 +30,9 @@ const ICONS = {
   pin:   { d: 'M12 21.5C12 21.5 18.5 15 18.5 10.2A6.5 6.5 0 0 0 5.5 10.2C5.5 15 12 21.5 12 21.5Z', mode: 'fill' },
   dot:   { d: '', mode: 'dot' },
   link:  { d: 'M9.5 14.5 14.5 9.5M11 6.5 12.7 4.8a4 4 0 0 1 5.7 5.7l-1.7 1.7M13 17.5l-1.7 1.7a4 4 0 0 1-5.7-5.7l1.7-1.7', mode: 'stroke' },
+  archive:  { d: 'M3.5 7.5h17v3.5h-17zM5.5 11v9h13v-9M9.5 14.5h5', mode: 'stroke' },
+  calendar: { d: 'M4 6.5h16V20H4zM4 10.5h16M8.5 3.5v4M15.5 3.5v4', mode: 'stroke' },
+  chart:    { d: 'M3.5 20.5h17M7 20.5v-6.5M12 20.5V6.5M17 20.5v-9.5', mode: 'stroke' },
 };
 
 function Icon({ name, size = 14 }) {
@@ -1368,9 +1371,9 @@ function Stats({ trips, onOpen }) {
    ========================================================================== */
 
 const TABS = [
-  { id: 'archive', label: 'Archive' },
-  { id: 'upcoming', label: 'Upcoming' },
-  { id: 'stats', label: 'Stats' },
+  { id: 'archive', label: 'Archive', icon: 'archive' },
+  { id: 'upcoming', label: 'Upcoming', icon: 'calendar' },
+  { id: 'stats', label: 'Stats', icon: 'chart' },
 ];
 
 export default function App() {
@@ -1431,8 +1434,17 @@ export default function App() {
   if (!trips) return <Spinner label="Loading your trips" />;
 
   return (
-    <div className="h-screen flex flex-col" style={{ backgroundColor: 'var(--cream)' }}>
-      <main className="flex-1 hub-scroll">
+    <div
+      className="flex flex-col"
+      style={{
+        // 100vh on iOS includes the area behind the home indicator, which
+        // pushed the tab bar off screen. dvh tracks the usable viewport.
+        height: '100dvh',
+        maxHeight: '100dvh',
+        backgroundColor: 'var(--cream)',
+      }}
+    >
+      <main className="flex-1 hub-scroll" style={{ minHeight: 0 }}>
         {open ? (
           <TripDetail
             trip={open}
@@ -1471,14 +1483,24 @@ export default function App() {
                 <button
                   key={t.id}
                   onClick={() => setTab(t.id)}
-                  className="py-3 text-xs font-medium tracking-wide"
+                  className="flex flex-col items-center gap-1 pt-2.5 pb-2"
                   style={{
                     color: active ? 'var(--navy)' : 'var(--navy-45)',
                     borderTop: active ? '2px solid var(--navy)' : '2px solid transparent',
                   }}
                   aria-current={active ? 'page' : undefined}
                 >
-                  {t.label}
+                  <Icon name={t.icon} size={19} />
+                  <span
+                    style={{
+                      fontSize: '9.5px',
+                      fontWeight: 600,
+                      letterSpacing: '0.11em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    {t.label}
+                  </span>
                 </button>
               );
             })}
