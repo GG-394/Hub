@@ -104,7 +104,13 @@ export function mapsTarget(item) {
     if (m) s = m[1].trim();
   }
 
-  s = s.replace(/\s*\([^)]*\)\s*$/, '').replace(/[.,;:!?]+$/, '').trim();
+  s = s
+    .replace(/\s*\/\/.*$/, '')                                  // "Dinner @ Bajel // 7.30PM"
+    .replace(/\s*\([^)]*\)\s*$/, '')
+    .replace(/,?\s*\b\d{1,2}(?:[.:]\d{2})?\s*(?:am|pm)\b\s*$/i, '')
+    .replace(/,?\s*\b\d{1,2}[.:]\d{2}\b\s*$/, '')
+    .replace(/[.,;:!?]+$/, '')
+    .trim();
 
   if (s.length < 3) return null;
   if (!/[A-Z]/.test(s)) return null;               // no proper noun, no link
