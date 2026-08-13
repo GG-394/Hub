@@ -10,4 +10,13 @@ if (!url || !key) {
   );
 }
 
-export const supabase = createClient(url ?? '', key ?? '');
+export const supabase = createClient(url ?? '', key ?? '', {
+  auth: {
+    // Keeps you signed in across app launches and refreshes the token in the
+    // background, so the home-screen PWA doesn't ask again.
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    storage: typeof window === 'undefined' ? undefined : window.localStorage,
+  },
+});
