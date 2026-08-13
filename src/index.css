@@ -89,6 +89,23 @@ body {
   color: var(--navy-45);
 }
 
+/* iOS zooms the viewport whenever a focused control is under 16px, and never
+   zooms back out. Every text control is therefore 16px. */
+input,
+textarea,
+select {
+  font-size: 16px !important;
+}
+
+/* native date controls have a wide intrinsic size and burst their container */
+input[type='date'] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
 /* Keyboard focus stays visible everywhere */
 :focus-visible {
   outline: 2px solid var(--navy);
@@ -96,9 +113,10 @@ body {
 }
 
 /* Contain scrolling to the content region */
+/* NB: -webkit-overflow-scrolling: touch breaks position:sticky inside the
+   scroll container on iOS Safari, so it is deliberately not set here. */
 .hub-scroll {
   overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
 }
 
 .hub-scroll::-webkit-scrollbar {
