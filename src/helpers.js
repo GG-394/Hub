@@ -125,7 +125,9 @@ export function isMappable(item) {
 
 export function mapsUrl(item, city) {
   if (item.maps_url) return item.maps_url;
-  const t = mapsTarget(item);
+  // mapsTarget still tidies the query (drops "// 7.30PM", strips "Dinner @ "),
+  // but whether to link at all is now an explicit per-item choice.
+  const t = mapsTarget(item) || placeName(item.title);
   if (!t) return null;
   const q = [t, city].filter(Boolean).join(' ');
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
