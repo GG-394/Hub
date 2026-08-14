@@ -51,6 +51,15 @@ export function daysUntil(iso) {
   return Math.round((d - t) / 86400000);
 }
 
+/** The ISO date one day on from the given one. */
+export function nextDay(iso) {
+  const d = parseISO(iso);
+  if (!d) return null;
+  d.setDate(d.getDate() + 1);
+  const p = (v) => String(v).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 /** Every ISO date from start to end inclusive. Capped, as a guard against a
  *  mistyped year producing thousands of rows. */
 export function datesBetween(start, end, cap = 90) {
