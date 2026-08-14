@@ -844,13 +844,6 @@ function DayEditor({ day, items, onSave, onCancel, knownCities, previousDay }) {
 /** Pinned above the scroll area: back button and trip identity. */
 function TripHeader({ trip, onBack }) {
   const nights = nightsBetween(trip.start_date, trip.end_date);
-
-  // The obvious next date: the day after the last one recorded
-  const suggestedDate = useMemo(() => {
-    const dated = days.filter((d) => d.date).map((d) => d.date).sort();
-    const last = dated.length ? dated[dated.length - 1] : trip.end_date || trip.start_date;
-    return nextDay(last) || trip.start_date;
-  }, [days, trip.start_date, trip.end_date]);
   return (
     <div
       className="px-5 pt-3 pb-2.5"
@@ -1287,13 +1280,6 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
 function TripCard({ trip, onOpen, showCountdown }) {
   const places = tripPlaces(trip, 5);
   const nights = nightsBetween(trip.start_date, trip.end_date);
-
-  // The obvious next date: the day after the last one recorded
-  const suggestedDate = useMemo(() => {
-    const dated = days.filter((d) => d.date).map((d) => d.date).sort();
-    const last = dated.length ? dated[dated.length - 1] : trip.end_date || trip.start_date;
-    return nextDay(last) || trip.start_date;
-  }, [days, trip.start_date, trip.end_date]);
   const away = showCountdown ? daysUntil(trip.start_date) : null;
 
   return (
