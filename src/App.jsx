@@ -13,7 +13,6 @@ import {
   nightsBetween,
   parseBullets,
   todayISO,
-  tripPlaces,
   yearOf,
 } from './helpers';
 
@@ -64,6 +63,43 @@ class ErrorBoundary extends React.Component {
       </div>
     );
   }
+}
+
+/**
+ * The places shown on a trip card.
+ *
+ * A manual summary always wins. Otherwise it's the distinct locations recorded
+ * against the days, in visit order — which covers a freshly added trip where
+ * the days were pre-populated with a destination.
+ *
+ * The one thing suppressed is pure redundancy: a single location identical to
+ * the trip's own name, where the card would just repeat its title.
+ */
+function tripPlaces(trip, limit = 6) {
+  if (trip.summary && trip.summary.trim()) {
+    return trip.summary
+      .split(/\s*[;\u00b7]\s*|\s*,\s*/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, limit);
+  }
+
+  const days = [...(trip.days || [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+
+  const seq = [];
+  days.forEach((d) => {
+    const c = (d.city || '').trim();
+    if (!c) return;
+    if (seq.length && seq[seq.length - 1].toLowerCase() === c.toLowerCase()) return;
+    seq.push(c);
+  });
+
+  const uniq = [...new Map(seq.map((s) => [s.toLowerCase(), s])).values()];
+
+  if (uniq.length === 1 && uniq[0].toLowerCase() === (trip.title || '').trim().toLowerCase()) {
+    return [];
+  }
+  return uniq.slice(0, limit);
 }
 
 /* ==========================================================================
