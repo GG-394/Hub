@@ -75,13 +75,14 @@ class ErrorBoundary extends React.Component {
  * The one thing suppressed is pure redundancy: a single location identical to
  * the trip's own name, where the card would just repeat its title.
  */
-function tripPlaces(trip, limit = 6) {
+function tripPlaces(trip) {
+  // No cap: cards wrap to as many lines as they need rather than dropping
+  // places off the end. A long trip legitimately has a long list.
   if (trip.summary && trip.summary.trim()) {
     return trip.summary
       .split(/\s*[;\u00b7]\s*|\s*,\s*/)
       .map((s) => s.trim())
-      .filter(Boolean)
-      .slice(0, limit);
+      .filter(Boolean);
   }
 
   const days = [...(trip.days || [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
@@ -99,7 +100,7 @@ function tripPlaces(trip, limit = 6) {
   if (uniq.length === 1 && uniq[0].toLowerCase() === (trip.title || '').trim().toLowerCase()) {
     return [];
   }
-  return uniq.slice(0, limit);
+  return uniq;
 }
 
 /* ==========================================================================
@@ -918,7 +919,7 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
   const [notesDraft, setNotesDraft] = useState(trip.notes || '');
   // What the card shows today: either the manual list or the derived cities.
   // Editing writes it back explicitly, so removing a tag persists.
-  const summaryTags = useMemo(() => tripPlaces(trip, 12), [trip]);
+  const summaryTags = useMemo(() => tripPlaces(trip), [trip]);
 
   const days = useMemo(
     () => [...(trip.days || [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
@@ -1314,7 +1315,7 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
    ========================================================================== */
 
 function TripCard({ trip, onOpen, showCountdown }) {
-  const places = tripPlaces(trip, 5);
+  const places = tripPlaces(trip);
   const nights = nightsBetween(trip.start_date, trip.end_date);
   const away = showCountdown ? daysUntil(trip.start_date) : null;
 
