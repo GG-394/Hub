@@ -18,6 +18,55 @@ import {
 } from './helpers';
 
 /* ==========================================================================
+   Error boundary — a render exception would otherwise leave a blank screen
+   with the reason only visible in the browser console.
+   ========================================================================== */
+
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    // eslint-disable-next-line no-console
+    console.error('Hub crashed while rendering:', error, info);
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="min-h-screen px-6 pt-16" style={{ backgroundColor: 'var(--cream)' }}>
+        <p className="hub-eyebrow mb-3">Something broke</p>
+        <h1 className="hub-display text-3xl mb-4">Hub hit an error</h1>
+        <pre
+          className="text-xs leading-relaxed p-3 mb-4"
+          style={{
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            backgroundColor: 'rgba(255,255,255,0.5)',
+            border: '1px solid var(--navy-20)',
+          }}
+        >
+          {String(this.state.error && (this.state.error.stack || this.state.error.message))}
+        </pre>
+        <button
+          onClick={() => window.location.reload()}
+          className="px-4 py-2 text-sm font-medium rounded-sm"
+          style={{ backgroundColor: 'var(--navy)', color: 'var(--cream)' }}
+        >
+          Reload
+        </button>
+      </div>
+    );
+  }
+}
+
+/* ==========================================================================
    Date helpers — kept in this file rather than helpers.js so App.jsx can be
    updated on its own, without the two files having to move together.
    ========================================================================== */
@@ -1845,7 +1894,7 @@ const TABS = [
   { id: 'stats', label: 'Stats', icon: 'chart' },
 ];
 
-export default function App() {
+function AppInner() {
   const [session, setSession] = useState(null);
   const [checking, setChecking] = useState(true);
   const [trips, setTrips] = useState(null);
@@ -1853,6 +1902,7 @@ export default function App() {
   const [openId, setOpenId] = useState(null);
   const [query, setQuery] = useState('');
   const [years, setYears] = useState([]);
+  const [loadError, setLoadError] = useState(null);
   const sectionRefs = useRef({});
   const scrollRef = useRef(null);
   const savedScroll = useRef({});   // scroll position per tab
@@ -1874,10 +1924,12 @@ export default function App() {
       .select('*, days(*, items(*))')
       .order('start_date', { ascending: false });
     if (error) {
-      console.error(error);
+      console.error('Loading trips failed:', error);
+      setLoadError(error.message || String(error));
       setTrips([]);
       return;
     }
+    setLoadError(null);
     setTrips(data || []);
   }, []);
 
@@ -1952,6 +2004,15 @@ export default function App() {
 
   if (checking) return <Spinner label="Checking your session" />;
   if (!session) return <SignIn />;
+  if (loadError) {
+    return (
+      <div className="min-h-screen px-6 pt-16">
+        <p className="hub-eyebrow mb-3">Couldn't load your trips</p>
+        <p className="text-sm mb-4" style={{ color: '#a33' }}>{loadError}</p>
+        <Button onClick={load}>Try again</Button>
+      </div>
+    );
+  }
   if (!trips) return <Spinner label="Loading your trips" />;
 
   return (
@@ -2051,5 +2112,13 @@ export default function App() {
         </nav>
       )}
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppInner />
+    </ErrorBoundary>
   );
 }
