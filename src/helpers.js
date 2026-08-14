@@ -51,6 +51,22 @@ export function daysUntil(iso) {
   return Math.round((d - t) / 86400000);
 }
 
+/** Every ISO date from start to end inclusive. Capped, as a guard against a
+ *  mistyped year producing thousands of rows. */
+export function datesBetween(start, end, cap = 90) {
+  const s = parseISO(start);
+  const e = parseISO(end) || s;
+  if (!s) return [];
+  const out = [];
+  const d = new Date(s);
+  while (d <= e && out.length < cap) {
+    const p = (v) => String(v).padStart(2, '0');
+    out.push(`${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`);
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+
 /** "Thu 15 May" — used as a fallback label when a day has a date but no label */
 export function dayHeading(iso) {
   const d = parseISO(iso);
