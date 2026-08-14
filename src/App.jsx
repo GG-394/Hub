@@ -7,6 +7,7 @@ import {
   parseISO,
   dateRange,
   datesBetween,
+  nextDay,
   dayHeading,
   daysUntil,
   itemsToText,
@@ -576,7 +577,7 @@ function ItemRow({ item, city, depth = 0, onToggleLink }) {
    Day editor
    ========================================================================== */
 
-function DayEditor({ day, items, onSave, onCancel, knownCities, previousStay }) {
+function DayEditor({ day, items, onSave, onCancel, knownCities, previousDay }) {
   const [text, setText] = useState(() => itemsToText(items) || '- ');
   const [city, setCity] = useState(day.city || '');
   const [stay, setStay] = useState(day.stay || '');
@@ -680,6 +681,19 @@ function DayEditor({ day, items, onSave, onCancel, knownCities, previousStay }) 
         </div>
       </div>
 
+      {previousDay && (previousDay.city || previousDay.stay) && (
+        <button
+          onClick={() => {
+            if (previousDay.city) setCity(previousDay.city);
+            if (previousDay.stay) setStay(previousDay.stay);
+          }}
+          className="hub-faint text-xs underline mb-2"
+        >
+          ← same as {dayHeading(previousDay.date) || 'the day before'}
+          {previousDay.city ? ` (${previousDay.city}${previousDay.stay ? ', ' + previousDay.stay : ''})` : ''}
+        </button>
+      )}
+
       <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: '1fr' }}>
         <Field label="Where">
           <input
@@ -689,6 +703,14 @@ function DayEditor({ day, items, onSave, onCancel, knownCities, previousStay }) 
             placeholder="San Sebastián"
             className="hub-input w-full px-2 py-1.5"
           />
+          {previousDay && previousDay.city && previousDay.city !== city && (
+            <button
+              onClick={() => setCity(previousDay.city)}
+              className="hub-faint text-xs underline mt-1"
+            >
+              same as {previousDay.city}
+            </button>
+          )}
         </Field>
         <Field label="Staying at">
           <input
@@ -697,12 +719,12 @@ function DayEditor({ day, items, onSave, onCancel, knownCities, previousStay }) 
             placeholder="Hotel María Cristina"
             className="hub-input w-full px-2 py-1.5"
           />
-          {previousStay && previousStay !== stay && (
+          {previousDay && previousDay.stay && previousDay.stay !== stay && (
             <button
-              onClick={() => setStay(previousStay)}
+              onClick={() => setStay(previousDay.stay)}
               className="hub-faint text-xs underline mt-1"
             >
-              same as {previousStay}
+              same as {previousDay.stay}
             </button>
           )}
         </Field>
@@ -745,6 +767,13 @@ function DayEditor({ day, items, onSave, onCancel, knownCities, previousStay }) 
 /** Pinned above the scroll area: back button and trip identity. */
 function TripHeader({ trip, onBack }) {
   const nights = nightsBetween(trip.start_date, trip.end_date);
+
+  // The obvious next date: the day after the last one recorded
+  const suggestedDate = useMemo(() => {
+    const dated = days.filter((d) => d.date).map((d) => d.date).sort();
+    const last = dated.length ? dated[dated.length - 1] : trip.end_date || trip.start_date;
+    return nextDay(last) || trip.start_date;
+  }, [days, trip.start_date, trip.end_date]);
   return (
     <div
       className="px-5 pt-3 pb-2.5"
@@ -775,7 +804,7 @@ function TripHeader({ trip, onBack }) {
 function TripDetail({ trip, onReload, userId, knownCities }) {
   const [editingDay, setEditingDay] = useState(null);
   const [addingDay, setAddingDay] = useState(false);
-  const [newDayDate, setNewDayDate] = useState(trip.end_date || trip.start_date);
+  const [newDayDate, setNewDayDate] = useState(null);
   const [showNotes, setShowNotes] = useState(false);
   const [editingNotes, setEditingNotes] = useState(false);
   const [editingName, setEditingName] = useState(false);
@@ -791,6 +820,13 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
   );
 
   const nights = nightsBetween(trip.start_date, trip.end_date);
+
+  // The obvious next date: the day after the last one recorded
+  const suggestedDate = useMemo(() => {
+    const dated = days.filter((d) => d.date).map((d) => d.date).sort();
+    const last = dated.length ? dated[dated.length - 1] : trip.end_date || trip.start_date;
+    return nextDay(last) || trip.start_date;
+  }, [days, trip.start_date, trip.end_date]);
 
   async function saveWho(next) {
     const { error } = await supabase
@@ -848,6 +884,23 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
         alert(`Couldn't save the day details: ${error.message}`);
         return;
       }
+
+      // A manual summary overrides the derived one, so a newly named location
+      // would otherwise never reach the card. Append it — but only this one, so
+      // tags you've deliberately removed stay removed.
+      const city = (dayFields.city || '').trim();
+      if (city && trip.summary) {
+        const current = trip.summary
+          .split(/\s*[;\u00b7]\s*|\s*,\s*/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (!current.some((s) => s.toLowerCase() === city.toLowerCase())) {
+          await supabase
+            .from('trips')
+            .update({ summary: [...current, city].join(', ') })
+            .eq('id', trip.id);
+        }
+      }
     }
     await supabase.from('items').delete().eq('day_id', day.id);
 
@@ -877,10 +930,12 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
   }
 
   async function addDay() {
+    const last = days[days.length - 1];
     const { error } = await supabase.from('days').insert({
       user_id: userId,
       trip_id: trip.id,
-      date: newDayDate || null,
+      date: newDayDate || suggestedDate,
+      city: last ? last.city : trip.city,
       sort_order: days.length,
     });
     if (error) {
@@ -973,7 +1028,10 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
             <p className="text-sm leading-relaxed mb-3">
               Nothing recorded yet. Add a day and start filling it in.
             </p>
-            <Button onClick={() => setAddingDay(true)}>Add a day</Button>
+            <Button onClick={() => {
+                setNewDayDate(suggestedDate);
+                setAddingDay(true);
+              }}>Add a day</Button>
           </div>
         )}
 
@@ -1018,7 +1076,7 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
                   day={day}
                   items={items}
                   knownCities={knownCities}
-                  previousStay={dayIndex > 0 ? days[dayIndex - 1].stay : null}
+                  previousDay={dayIndex > 0 ? days[dayIndex - 1] : null}
                   onSave={(rows, fields) => saveDay(day, rows, fields)}
                   onCancel={() => setEditingDay(null)}
                 />
@@ -1048,7 +1106,7 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
 
         {addingDay ? (
             <div className="hub-card p-3 mb-4">
-              <DateField label="Date" value={newDayDate} onChange={setNewDayDate} />
+              <DateField label="Date" value={newDayDate || suggestedDate} onChange={setNewDayDate} />
               <div className="flex gap-2 mt-3">
                 <Button onClick={addDay}>Add day</Button>
                 <Button variant="ghost" onClick={() => setAddingDay(false)}>
@@ -1057,7 +1115,10 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
               </div>
             </div>
         ) : days.length > 0 ? (
-          <button onClick={() => setAddingDay(true)} className="hub-faint text-sm">
+          <button onClick={() => {
+                setNewDayDate(suggestedDate);
+                setAddingDay(true);
+              }} className="hub-faint text-sm">
             + Add a day
           </button>
         ) : null}
@@ -1149,6 +1210,13 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
 function TripCard({ trip, onOpen, showCountdown }) {
   const places = tripPlaces(trip, 5);
   const nights = nightsBetween(trip.start_date, trip.end_date);
+
+  // The obvious next date: the day after the last one recorded
+  const suggestedDate = useMemo(() => {
+    const dated = days.filter((d) => d.date).map((d) => d.date).sort();
+    const last = dated.length ? dated[dated.length - 1] : trip.end_date || trip.start_date;
+    return nextDay(last) || trip.start_date;
+  }, [days, trip.start_date, trip.end_date]);
   const away = showCountdown ? daysUntil(trip.start_date) : null;
 
   return (
