@@ -6,8 +6,6 @@ import {
   countriesOf,
   parseISO,
   dateRange,
-  datesBetween,
-  nextDay,
   dayHeading,
   daysUntil,
   itemsToText,
@@ -18,6 +16,36 @@ import {
   tripPlaces,
   yearOf,
 } from './helpers';
+
+/* ==========================================================================
+   Date helpers — kept in this file rather than helpers.js so App.jsx can be
+   updated on its own, without the two files having to move together.
+   ========================================================================== */
+
+/** The ISO date one day on from the given one. */
+function nextDay(iso) {
+  const d = parseISO(iso);
+  if (!d) return null;
+  d.setDate(d.getDate() + 1);
+  const p = (v) => String(v).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** Every ISO date from start to end inclusive, capped so a mistyped year
+ *  can't generate thousands of rows. */
+function datesBetween(start, end, cap = 90) {
+  const s = parseISO(start);
+  const e = parseISO(end) || s;
+  if (!s) return [];
+  const out = [];
+  const d = new Date(s);
+  while (d <= e && out.length < cap) {
+    const p = (v) => String(v).padStart(2, '0');
+    out.push(`${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`);
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
 
 /* ==========================================================================
    Icons — small, consistent, stroked in the current text colour
