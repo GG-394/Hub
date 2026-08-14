@@ -6,6 +6,7 @@ import {
   countriesOf,
   parseISO,
   dateRange,
+  datesBetween,
   dayHeading,
   daysUntil,
   itemsToText,
@@ -234,11 +235,15 @@ function Flags({ trip, size = 18 }) {
  * Editable chips. Used for companions and for the card summary, so both can be
  * pruned one tag at a time.
  */
-function Tags({ value, onSave, placeholder, addLabel, extraAction, reorder }) {
-  const list = (value || '')
+function Tags({ value, onSave, placeholder, addLabel, reorder, sortAlpha, quickAdds }) {
+  const raw = (value || '')
     .split(/\s*[;\u00b7]\s*|\s*,\s*/)
     .map((s) => s.trim())
     .filter(Boolean);
+  // People read better alphabetically; summary tags keep the order you set.
+  const list = sortAlpha
+    ? [...raw].sort((x, y) => x.localeCompare(y, undefined, { sensitivity: 'base' }))
+    : raw;
 
   const [draft, setDraft] = useState('');
   const [open, setOpen] = useState(false);
@@ -252,7 +257,12 @@ function Tags({ value, onSave, placeholder, addLabel, extraAction, reorder }) {
   const movedRef = useRef(false);
 
   const shown = order || list;
-  const commit = (next) => onSave(next.join(', '));
+  const commit = (next) => {
+    const out = sortAlpha
+      ? [...next].sort((x, y) => x.localeCompare(y, undefined, { sensitivity: 'base' }))
+      : next;
+    onSave(out.join(', '));
+  };
 
   const canDrag = reorder && list.length > 1;
 
@@ -369,7 +379,18 @@ function Tags({ value, onSave, placeholder, addLabel, extraAction, reorder }) {
             {list.length ? '+ add' : addLabel}
           </button>
         )}
-        {!open && !list.length && extraAction}
+        {!open &&
+          (quickAdds || [])
+            .filter((s) => !list.some((p) => p.toLowerCase() === s.toLowerCase()))
+            .map((s) => (
+              <button
+                key={s}
+                onClick={() => commit([...list, s])}
+                className="hub-faint text-xs underline"
+              >
+                {s}
+              </button>
+            ))}
       </div>
 
       {open && (
@@ -927,11 +948,8 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
             onSave={saveWho}
             placeholder="Name, then Enter"
             addLabel="+ add someone"
-            extraAction={
-              <button onClick={() => saveWho('Solo')} className="hub-faint text-xs underline ml-1">
-                or solo
-              </button>
-            }
+            sortAlpha
+            quickAdds={['Solo', 'Big group']}
           />
         </div>
 
@@ -1028,8 +1046,7 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
           );
         })}
 
-        {days.length > 0 &&
-          (addingDay ? (
+        {addingDay ? (
             <div className="hub-card p-3 mb-4">
               <DateField label="Date" value={newDayDate} onChange={setNewDayDate} />
               <div className="flex gap-2 mt-3">
@@ -1039,11 +1056,11 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
                 </Button>
               </div>
             </div>
-          ) : (
-            <button onClick={() => setAddingDay(true)} className="hub-faint text-sm">
-              + Add a day
-            </button>
-          ))}
+        ) : days.length > 0 ? (
+          <button onClick={() => setAddingDay(true)} className="hub-faint text-sm">
+            + Add a day
+          </button>
+        ) : null}
 
         <div className="mt-10">
           <div className="hub-rule mb-4" />
@@ -1324,7 +1341,10 @@ function Upcoming({ trips, onOpen, onReload, userId, knownCities }) {
   async function save() {
     if (!form.title.trim() || !form.start_date) return;
     setSaving(true);
+
+    const tripId = crypto.randomUUID();
     const { error } = await supabase.from('trips').insert({
+      id: tripId,
       user_id: userId,
       title: form.title.trim(),
       city: form.city.trim() || null,
@@ -1333,11 +1353,31 @@ function Upcoming({ trips, onOpen, onReload, userId, knownCities }) {
       end_date: form.end_date || null,
       companions: form.companions.trim() || null,
     });
-    setSaving(false);
     if (error) {
+      setSaving(false);
       alert(`Couldn't add that trip: ${error.message}`);
       return;
     }
+
+    // One empty day per date, so the trip is ready to fill in
+    const dates = datesBetween(form.start_date, form.end_date);
+    if (dates.length) {
+      const { error: dayError } = await supabase.from('days').insert(
+        dates.map((date, idx) => ({
+          user_id: userId,
+          trip_id: tripId,
+          date,
+          city: form.city.trim() || null,
+          sort_order: idx,
+        }))
+      );
+      if (dayError) {
+        setSaving(false);
+        alert(`Trip added, but the days failed: ${dayError.message}`);
+        return;
+      }
+    }
+    setSaving(false);
     closeForm();
     await onReload();
   }
