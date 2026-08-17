@@ -687,26 +687,29 @@ function ItemRow({ item, city, depth = 0, onToggleLink }) {
   );
 }
 
-/* ==========================================================================
-   Day editor
-   ========================================================================== */
-
-function DayEditor({ day, items, onSave, onCancel, knownCities, previousDay }) {
-  const [text, setText] = useState(() => itemsToText(items) || '- ');
-  const [city, setCity] = useState(day.city || '');
-  const [stay, setStay] = useState(day.stay || '');
-  const [saving, setSaving] = useState(false);
+/**
+ * A textarea that behaves like an outliner: starts on a bullet, Enter continues
+ * the list at the same depth, Tab nests, Shift+Tab outdents, and the ⇤ ⇥ buttons
+ * do the same where there's no Tab key. Shared by the day editor and the notes.
+ */
+function BulletEditor({ value, onChange, minRows = 6, placeholder, autoFocus, onReady }) {
   const ref = useRef(null);
 
   useEffect(() => {
     const ta = ref.current;
-    if (!ta) return;
-    ta.focus();
+    if (!ta || !autoFocus) return;
+    try {
+      ta.focus({ preventScroll: true });
+    } catch {
+      ta.focus();
+    }
     ta.setSelectionRange(ta.value.length, ta.value.length);
+    if (onReady) onReady();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function apply(next, caret) {
-    setText(next);
+    onChange(next);
     requestAnimationFrame(() => {
       const ta = ref.current;
       if (ta) ta.setSelectionRange(caret, caret);
@@ -716,22 +719,22 @@ function DayEditor({ day, items, onSave, onCancel, knownCities, previousDay }) {
   function shift(direction) {
     const ta = ref.current;
     if (!ta) return;
-    const { selectionStart, selectionEnd, value } = ta;
-    const from = value.lastIndexOf('\n', selectionStart - 1) + 1;
-    const toRaw = value.indexOf('\n', selectionEnd);
-    const to = toRaw === -1 ? value.length : toRaw;
+    const { selectionStart, selectionEnd, value: v } = ta;
+    const from = v.lastIndexOf('\n', selectionStart - 1) + 1;
+    const toRaw = v.indexOf('\n', selectionEnd);
+    const to = toRaw === -1 ? v.length : toRaw;
 
-    const block = value
+    const block = v
       .slice(from, to)
       .split('\n')
       .map((line) => (direction > 0 ? `  ${line}` : line.replace(/^ {1,2}/, '')))
       .join('\n');
 
-    apply(value.slice(0, from) + block + value.slice(to), Math.max(from, selectionStart + direction * 2));
+    apply(v.slice(0, from) + block + v.slice(to), Math.max(from, selectionStart + direction * 2));
   }
 
   function onKeyDown(e) {
-    const { selectionStart, selectionEnd, value } = e.target;
+    const { selectionStart, selectionEnd, value: v } = e.target;
 
     if (e.key === 'Tab') {
       e.preventDefault();
@@ -741,23 +744,83 @@ function DayEditor({ day, items, onSave, onCancel, knownCities, previousDay }) {
 
     if (e.key === 'Enter') {
       e.preventDefault();
-      const lineStart = value.lastIndexOf('\n', selectionStart - 1) + 1;
-      const currentLine = value.slice(lineStart, selectionStart);
+      const lineStart = v.lastIndexOf('\n', selectionStart - 1) + 1;
+      const currentLine = v.slice(lineStart, selectionStart);
       const indent = currentLine.match(/^ */)[0];
 
+      // Enter on an empty bullet outdents, then clears
       if (/^\s*-\s*$/.test(currentLine)) {
         if (indent.length > 0) {
           shift(-1);
           return;
         }
-        apply(`${value.slice(0, lineStart)}\n${value.slice(selectionEnd)}`, lineStart + 1);
+        apply(`${v.slice(0, lineStart)}\n${v.slice(selectionEnd)}`, lineStart + 1);
         return;
       }
 
-      const insert = `\n${indent}- `;
-      apply(value.slice(0, selectionStart) + insert + value.slice(selectionEnd), selectionStart + insert.length);
+      // A ** heading line isn't part of the list, so don't continue one
+      const insert = /^\s*\*\*.*\*\*\s*$/.test(currentLine) ? '\n' : `\n${indent}- `;
+      apply(v.slice(0, selectionStart) + insert + v.slice(selectionEnd), selectionStart + insert.length);
     }
   }
+
+  return (
+    <div>
+      <div className="flex justify-end gap-1 mb-1.5">
+        {/* preventDefault keeps focus in the textarea, so the keyboard stays up */}
+        <button
+          onMouseDown={(e) => e.preventDefault()}
+          onTouchStart={(e) => e.preventDefault()}
+          onClick={() => shift(-1)}
+          className="px-2.5 py-1 text-xs hub-muted"
+          style={{ border: '1px solid var(--navy-20)' }}
+          title="Outdent (Shift+Tab)"
+        >
+          ⇤
+        </button>
+        <button
+          onMouseDown={(e) => e.preventDefault()}
+          onTouchStart={(e) => e.preventDefault()}
+          onClick={() => shift(1)}
+          className="px-2.5 py-1 text-xs hub-muted"
+          style={{ border: '1px solid var(--navy-20)' }}
+          title="Indent (Tab)"
+        >
+          ⇥
+        </button>
+      </div>
+
+      <textarea
+        ref={ref}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={onKeyDown}
+        rows={Math.max(minRows, value.split('\n').length + 1)}
+        spellCheck="false"
+        placeholder={placeholder}
+        className="hub-input w-full px-3 py-2 leading-relaxed"
+        style={{
+          whiteSpace: 'pre-wrap',
+          overflowWrap: 'break-word',
+          wordBreak: 'break-word',
+          overflowX: 'hidden',
+          fontSize: '16px',
+        }}
+      />
+    </div>
+  );
+}
+
+/* ==========================================================================
+   Day editor
+   ========================================================================== */
+
+function DayEditor({ day, items, onSave, onCancel, knownCities, previousDay }) {
+  const [text, setText] = useState(() => itemsToText(items) || '- ');
+  const [city, setCity] = useState(day.city || '');
+  const [stay, setStay] = useState(day.stay || '');
+  const [saving, setSaving] = useState(false);
+  const boxRef = useRef(null);
 
   async function save() {
     setSaving(true);
@@ -766,34 +829,8 @@ function DayEditor({ day, items, onSave, onCancel, knownCities, previousDay }) {
   }
 
   return (
-    <div className="hub-card p-3 my-2">
-      <div className="flex items-center justify-between mb-3">
-        <span className="hub-eyebrow">Editing {dayHeading(day.date) || day.label}</span>
-        <div className="flex gap-1">
-          {/* preventDefault on mousedown keeps focus in the textarea, so the
-              on-screen keyboard doesn't dismiss when you tap indent */}
-          <button
-            onMouseDown={(e) => e.preventDefault()}
-            onTouchStart={(e) => e.preventDefault()}
-            onClick={() => shift(-1)}
-            className="px-2.5 py-1 text-xs hub-muted"
-            style={{ border: '1px solid var(--navy-20)' }}
-            title="Outdent (Shift+Tab)"
-          >
-            ⇤
-          </button>
-          <button
-            onMouseDown={(e) => e.preventDefault()}
-            onTouchStart={(e) => e.preventDefault()}
-            onClick={() => shift(1)}
-            className="px-2.5 py-1 text-xs hub-muted"
-            style={{ border: '1px solid var(--navy-20)' }}
-            title="Indent (Tab)"
-          >
-            ⇥
-          </button>
-        </div>
-      </div>
+    <div ref={boxRef} className="hub-card p-3 my-2" style={{ scrollMarginTop: '116px' }}>
+      <span className="hub-eyebrow block mb-3">Editing {dayHeading(day.date) || day.label}</span>
 
       {previousDay && (previousDay.city || previousDay.stay) && (
         <button
@@ -844,15 +881,13 @@ function DayEditor({ day, items, onSave, onCancel, knownCities, previousDay }) {
         </Field>
       </div>
 
-      <textarea
-        ref={ref}
+      <BulletEditor
         value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={onKeyDown}
-        rows={Math.max(6, text.split('\n').length + 1)}
-        spellCheck="false"
-        className="hub-input w-full px-3 py-2 leading-relaxed"
-        style={{ whiteSpace: 'pre', overflowWrap: 'normal', overflowX: 'auto', fontSize: '16px' }}
+        onChange={setText}
+        autoFocus
+        onReady={() => {
+          if (boxRef.current) boxRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }}
       />
 
       <p className="hub-faint text-xs mt-2 leading-relaxed">
@@ -1277,7 +1312,13 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
               <span aria-hidden="true">{showNotes ? '−' : '+'}</span>
             </button>
             {showNotes && !editingNotes && (
-              <button onClick={() => setEditingNotes(true)} className="hub-faint text-xs underline">
+              <button
+                onClick={() => {
+                  if (!notesDraft.trim()) setNotesDraft('- ');
+                  setEditingNotes(true);
+                }}
+                className="hub-faint text-xs underline"
+              >
                 {trip.notes ? 'Edit' : 'Add'}
               </button>
             )}
@@ -1286,14 +1327,16 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
           {showNotes && (
             editingNotes ? (
               <div>
-                <textarea
+                <BulletEditor
                   value={notesDraft}
-                  onChange={(e) => setNotesDraft(e.target.value)}
-                  rows={Math.max(8, notesDraft.split('\n').length + 1)}
-                  className="hub-input w-full px-3 py-2 leading-relaxed"
-                  style={{ fontSize: '16px' }}
-                  placeholder={'Anything worth keeping — links, places to try next time.\nWrap a line in ** to make it a heading.'}
+                  onChange={setNotesDraft}
+                  minRows={8}
+                  placeholder={'- Anything worth keeping — links, places to try next time'}
                 />
+                <p className="hub-faint text-xs mt-2 leading-relaxed">
+                  Same as the day editor: Enter starts the next bullet, Tab nests it. Wrap a
+                  line in <span className="italic">**like this**</span> to make it a heading.
+                </p>
                 <div className="flex gap-2 mt-2">
                   <Button onClick={saveNotes}>Save notes</Button>
                   <Button
@@ -1336,7 +1379,21 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
                       </p>
                     );
                   }
-                  return <p key={i}>{line.replace(/^-\s*/, '· ')}</p>;
+                  const indent = line.match(/^ */)[0].length;
+                  const body = line.replace(/^\s*/, '');
+                  const bulleted = /^[-\u2022*]\s*/.test(body);
+                  return (
+                    <p key={i} style={{ paddingLeft: `${(indent >= 2 ? 1 : 0) * 14 + (bulleted ? 12 : 0)}px` }}>
+                      {bulleted ? (
+                        <>
+                          <span className="hub-faint">· </span>
+                          {body.replace(/^[-\u2022*]\s*/, '')}
+                        </>
+                      ) : (
+                        body
+                      )}
+                    </p>
+                  );
                 })}
               </div>
             ) : (
