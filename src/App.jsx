@@ -1059,6 +1059,15 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
     await onReload();
   }
 
+  async function toggleStayLink(day, next) {
+    const { error } = await supabase.from('days').update({ stay_mappable: next }).eq('id', day.id);
+    if (error) {
+      alert(`Couldn't update that: ${error.message}`);
+      return;
+    }
+    await onReload();
+  }
+
   async function toggleLink(item, next) {
     const { error } = await supabase.from('items').update({ mappable: next }).eq('id', item.id);
     if (error) {
@@ -1160,7 +1169,37 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
                   {day.stay && (
                     <span className="hub-faint font-normal ml-2 inline-flex items-center gap-1">
                       <Icon name="stay" size={12} />
-                      {day.stay}
+                      {day.stay_mappable ? (
+                        <a
+                          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                            [day.stay, day.city || trip.city || trip.title].filter(Boolean).join(' ')
+                          )}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="underline decoration-dotted underline-offset-2"
+                        >
+                          {day.stay}
+                        </a>
+                      ) : (
+                        day.stay
+                      )}
+                      <button
+                        onClick={() => toggleStayLink(day, !day.stay_mappable)}
+                        title={
+                          day.stay_mappable
+                            ? 'Remove the map link'
+                            : 'Link this to Google Maps'
+                        }
+                        aria-label={
+                          day.stay_mappable ? `Unlink ${day.stay}` : `Link ${day.stay} to Google Maps`
+                        }
+                        style={{
+                          color: day.stay_mappable ? 'var(--navy)' : 'var(--navy-45)',
+                          opacity: day.stay_mappable ? 0.85 : 0.3,
+                        }}
+                      >
+                        <Icon name="link" size={11} />
+                      </button>
                     </span>
                   )}
                 </h2>
