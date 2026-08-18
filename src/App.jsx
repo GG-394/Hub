@@ -829,19 +829,20 @@ function BulletEditor({ value, onChange, minRows = 6, placeholder, autoFocus, on
    Day editor
    ========================================================================== */
 
-function DayEditor({ day, items, onSave, onCancel, knownCities, previousDay, isLastDay }) {
+function DayEditor({ day, items, onSave, onCancel, knownCities, previousDay, isLastDay, laterDayCount = 0 }) {
   const [text, setText] = useState(() => itemsToText(items) || '- ');
   const [city, setCity] = useState(day.city || '');
   const [stay, setStay] = useState(day.stay || '');
   const [saving, setSaving] = useState(false);
   const boxRef = useRef(null);
 
-  async function save() {
+  async function save(fillForward) {
     setSaving(true);
-    await onSave(parseBullets(text), {
-      city: city.trim() || null,
-      stay: isLastDay ? null : stay.trim() || null,
-    });
+    await onSave(
+      parseBullets(text),
+      { city: city.trim() || null, stay: isLastDay ? null : stay.trim() || null },
+      fillForward
+    );
     setSaving(false);
   }
 
@@ -919,10 +920,16 @@ function DayEditor({ day, items, onSave, onCancel, knownCities, previousDay, isL
         (<span className="italic">- great, cheap</span>).
       </p>
 
-      <div className="flex gap-2 mt-3">
-        <Button onClick={save} disabled={saving}>
+      <div className="flex flex-wrap gap-2 mt-3">
+        <Button onClick={() => save(false)} disabled={saving}>
           {saving ? 'Saving…' : 'Save day'}
         </Button>
+        {!isLastDay && stay.trim() && laterDayCount > 0 && (
+          <Button variant="ghost" onClick={() => save(true)} disabled={saving}>
+            Save &amp; use for the next {laterDayCount}{' '}
+            {laterDayCount === 1 ? 'day' : 'days'}
+          </Button>
+        )}
         <Button variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
@@ -1041,7 +1048,28 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
     await onReload();
   }
 
-  async function saveDay(day, rows, dayFields) {
+  /**
+   * Copy this day's accommodation across every later day, skipping the last one
+   * since that's the journey home. The map-link toggle comes along with it.
+   */
+  async function fillStayForward(day, stay, mappable) {
+    const idx = days.findIndex((d) => d.id === day.id);
+    if (idx === -1) return;
+    const lastIdx = days.length - 1;
+    const targets = days
+      .slice(idx + 1)
+      .filter((_, k) => idx + 1 + k !== lastIdx)
+      .map((d) => d.id);
+    if (!targets.length) return;
+
+    const { error } = await supabase
+      .from('days')
+      .update({ stay: stay || null, stay_mappable: stay ? mappable : null })
+      .in('id', targets);
+    if (error) alert(`Couldn't fill the rest of the trip: ${error.message}`);
+  }
+
+  async function saveDay(day, rows, dayFields, fillForward) {
     if (dayFields) {
       const { error } = await supabase.from('days').update(dayFields).eq('id', day.id);
       if (error) {
@@ -1088,6 +1116,9 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
         alert(`Couldn't save that day: ${error.message}`);
         return;
       }
+    }
+    if (fillForward && dayFields) {
+      await fillStayForward(day, dayFields.stay, day.stay_mappable ?? true);
     }
     setEditingDay(null);
     await onReload();
@@ -1282,7 +1313,8 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
                   knownCities={knownCities}
                   previousDay={dayIndex > 0 ? days[dayIndex - 1] : null}
                   isLastDay={dayIndex === days.length - 1 && days.length > 1}
-                  onSave={(rows, fields) => saveDay(day, rows, fields)}
+                  onSave={(rows, fields, fill) => saveDay(day, rows, fields, fill)}
+                  laterDayCount={Math.max(0, days.length - 2 - dayIndex)}
                   onCancel={() => setEditingDay(null)}
                 />
               ) : items.length === 0 ? (
