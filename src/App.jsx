@@ -361,15 +361,27 @@ function Flags({ trip, size = 18 }) {
  * Editable chips. Used for companions and for the card summary, so both can be
  * pruned one tag at a time.
  */
+// Group labels sit above individual names; everything else is alphabetical
+const PINNED_TAGS = ['big group', 'solo'];
+
+function byPerson(x, y) {
+  const px = PINNED_TAGS.indexOf(x.toLowerCase());
+  const py = PINNED_TAGS.indexOf(y.toLowerCase());
+  if (px !== -1 || py !== -1) {
+    if (px === -1) return 1;
+    if (py === -1) return -1;
+    return px - py;
+  }
+  return x.localeCompare(y, undefined, { sensitivity: 'base' });
+}
+
 function Tags({ value, onSave, placeholder, addLabel, reorder, sortAlpha, quickAdds }) {
   const raw = (value || '')
     .split(/\s*[;\u00b7]\s*|\s*,\s*/)
     .map((s) => s.trim())
     .filter(Boolean);
   // People read better alphabetically; summary tags keep the order you set.
-  const list = sortAlpha
-    ? [...raw].sort((x, y) => x.localeCompare(y, undefined, { sensitivity: 'base' }))
-    : raw;
+  const list = sortAlpha ? [...raw].sort(byPerson) : raw;
 
   const [draft, setDraft] = useState('');
   const [open, setOpen] = useState(false);
@@ -384,10 +396,7 @@ function Tags({ value, onSave, placeholder, addLabel, reorder, sortAlpha, quickA
 
   const shown = order || list;
   const commit = (next) => {
-    const out = sortAlpha
-      ? [...next].sort((x, y) => x.localeCompare(y, undefined, { sensitivity: 'base' }))
-      : next;
-    onSave(out.join(', '));
+    onSave((sortAlpha ? [...next].sort(byPerson) : next).join(', '));
   };
 
   const canDrag = reorder && list.length > 1;
@@ -888,14 +897,6 @@ function DayEditor({ day, items, onSave, onCancel, knownCities, previousDay, isL
             placeholder="San Sebastián"
             className="hub-input w-full px-2 py-1.5"
           />
-          {previousDay && previousDay.city && previousDay.city !== city && (
-            <button
-              onClick={() => setCity(previousDay.city)}
-              className="hub-faint text-xs underline mt-1"
-            >
-              same as {previousDay.city}
-            </button>
-          )}
         </Field>
         {/* The last day is the journey home, so there's nowhere to stay */}
         {!isLastDay && (
@@ -906,15 +907,6 @@ function DayEditor({ day, items, onSave, onCancel, knownCities, previousDay, isL
               placeholder="Hotel María Cristina"
               className="hub-input w-full px-2 py-1.5"
             />
-            {previousDay && previousDay.stay && previousDay.stay !== stay && (
-              <button
-                onClick={() => setStay(previousDay.stay)}
-                className="hub-faint text-xs underline mt-1"
-              >
-                same as {previousDay.stay}
-              </button>
-            )}
-
             {canFill && (
               <button
                 onClick={() => setFillForward((v) => !v)}
@@ -1004,8 +996,13 @@ function TripHeader({ trip, onBack }) {
       <p className="hub-faint text-xs mt-0.5">
         {dateRange(trip.start_date, trip.end_date)}
         {nights ? ` · ${nights} ${nights === 1 ? 'night' : 'nights'}` : ''}
-        {trip.companions ? ` · ${trip.companions}` : ''}
       </p>
+      {trip.companions && (
+        <p className="hub-faint text-xs mt-0.5 flex items-center gap-1.5">
+          <Icon name="people" size={11} />
+          {trip.companions}
+        </p>
+      )}
     </div>
   );
 }
@@ -1637,17 +1634,20 @@ function TripCard({ trip, onOpen, showCountdown }) {
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 hub-muted text-xs">
-        <span className="inline-flex items-center gap-1.5">
+      {/* one line each, so the eye always finds them in the same place */}
+      <div className="mt-1.5 hub-muted text-xs space-y-1">
+        <div className="flex items-center gap-1.5">
           <Icon name="calendar" size={12} />
-          {dateRange(trip.start_date, trip.end_date)}
-          {nights ? ` · ${nights} ${nights === 1 ? 'night' : 'nights'}` : ''}
-        </span>
-        {trip.companions && (
-          <span className="inline-flex items-center gap-1.5">
-            <Icon name="people" size={12} />
-            {trip.companions}
+          <span>
+            {dateRange(trip.start_date, trip.end_date)}
+            {nights ? ` · ${nights} ${nights === 1 ? 'night' : 'nights'}` : ''}
           </span>
+        </div>
+        {trip.companions && (
+          <div className="flex items-center gap-1.5">
+            <Icon name="people" size={12} />
+            <span>{trip.companions}</span>
+          </div>
         )}
       </div>
 
@@ -2167,19 +2167,6 @@ function YearCalendar({ year, trips }) {
 // How many travel companions to list before the "show all" link
 const PEOPLE_SHOWN = 8;
 
-function Bar({ label, value, max, note }) {
-  const pct = max > 0 ? Math.round((value / max) * 100) : 0;
-  return (
-    <div className="flex items-center gap-3 py-1">
-      <span className="hub-muted text-xs w-9 shrink-0 tabular-nums">{label}</span>
-      <span className="flex-1 h-3" style={{ backgroundColor: 'var(--navy-10)' }}>
-        <span className="block h-3" style={{ width: `${pct}%`, backgroundColor: 'var(--navy)' }} />
-      </span>
-      <span className="hub-faint text-xs w-16 shrink-0 text-right">{note ?? value}</span>
-    </div>
-  );
-}
-
 function Stats({ trips, onOpen }) {
   const past = useMemo(() => trips.filter((t) => t.start_date <= todayISO()), [trips]);
   const [openYear, setOpenYear] = useState(null);
@@ -2256,15 +2243,27 @@ function Stats({ trips, onOpen }) {
           <div key={year}>
             <button
               onClick={() => setOpenYear(openYear === year ? null : year)}
-              className="w-full text-left"
+              className="w-full text-left py-1.5"
               aria-expanded={openYear === year}
             >
-              <Bar
-                label={String(year).slice(2)}
-                value={v.trips}
-                max={maxTrips}
-                note={`${v.trips} · ${v.nights}n`}
-              />
+              {/* counts on their own line, spelled out, rather than squeezed
+                  into a narrow column beside the bar */}
+              <div className="flex items-baseline justify-between gap-3 mb-1">
+                <span className="text-sm font-medium tabular-nums">{year}</span>
+                <span className="hub-muted text-xs">
+                  {v.trips} {v.trips === 1 ? 'trip' : 'trips'} · {v.nights}{' '}
+                  {v.nights === 1 ? 'night' : 'nights'}
+                </span>
+              </div>
+              <span className="block h-2.5" style={{ backgroundColor: 'var(--navy-10)' }}>
+                <span
+                  className="block h-2.5"
+                  style={{
+                    width: `${Math.round((v.trips / maxTrips) * 100)}%`,
+                    backgroundColor: 'var(--navy)',
+                  }}
+                />
+              </span>
             </button>
             {openYear === year && (
               <YearCalendar year={year} trips={past.filter((t) => yearOf(t.start_date) === year || yearOf(t.end_date) === year)} />
