@@ -288,7 +288,7 @@ function Field({ label, children }) {
  * button that only resets the wheels — it never commits an empty value — so
  * this provides the one thing that actually works.
  */
-function DateField({ label, value, onChange }) {
+function DateField({ label, value, onChange, min, max }) {
   return (
     <div>
       <div className="flex items-baseline justify-between mb-1.5">
@@ -307,6 +307,8 @@ function DateField({ label, value, onChange }) {
           type="date"
           value={value || ''}
           onChange={(e) => onChange(e.target.value)}
+          min={min || undefined}
+          max={max || undefined}
           className="hub-input px-3 py-2"
           style={{ flex: '1 1 0%', minWidth: 0, width: '100%' }}
         />
@@ -1668,7 +1670,7 @@ function Archive({ trips, onOpen, query, sectionRefs, onYears, userId, knownCiti
    Upcoming
    ========================================================================== */
 
-const EMPTY_TRIP = { title: '', city: '', country: '', start_date: '', end_date: '', companions: '', countryTouched: false };
+const EMPTY_TRIP = { title: '', city: '', country: '', start_date: '', end_date: '', companions: '', countryTouched: false, endTouched: false };
 
 /**
  * The add-trip form, shared by Upcoming and Archive so a trip can be added
@@ -1776,12 +1778,21 @@ function AddTripForm({ userId, knownCities, cityCountries, onDone, onCancel }) {
       <DateField
         label="From"
         value={form.start_date}
-        onChange={(v) => setForm({ ...form, start_date: v })}
+        onChange={(v) =>
+          setForm((f) => ({
+            ...f,
+            start_date: v,
+            // Seed the end date so its picker opens on the trip's month rather
+            // than today, and so an end before the start isn't possible.
+            end_date: !f.endTouched || !f.end_date || (v && f.end_date < v) ? v : f.end_date,
+          }))
+        }
       />
       <DateField
         label="To"
         value={form.end_date}
-        onChange={(v) => setForm({ ...form, end_date: v })}
+        min={form.start_date || undefined}
+        onChange={(v) => setForm({ ...form, end_date: v, endTouched: true })}
       />
 
       <div>
