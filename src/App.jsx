@@ -509,7 +509,8 @@ function Tags({ value, onSave, placeholder, addLabel, reorder, sortAlpha, quickA
       </div>
 
       {open && (
-        <div className="flex items-center gap-2 mt-2">
+        <div className="mt-2">
+          {/* input on its own line: three items side by side overflow a card */}
           <input
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -521,12 +522,25 @@ function Tags({ value, onSave, placeholder, addLabel, reorder, sortAlpha, quickA
             }}
             placeholder={placeholder}
             autoFocus
-            className="hub-input flex-1 px-2 py-1"
+            className="hub-input w-full px-2 py-1.5"
+            style={{ minWidth: 0 }}
           />
-          <Button onClick={add}>Add</Button>
-          <Button variant="ghost" onClick={() => setOpen(false)}>
-            Done
-          </Button>
+          <div className="flex gap-2 mt-2">
+            <button
+              onClick={add}
+              className="px-3 py-1 text-xs font-medium rounded-sm"
+              style={{ backgroundColor: 'var(--navy)', color: 'var(--cream)' }}
+            >
+              Add
+            </button>
+            <button
+              onClick={() => setOpen(false)}
+              className="px-3 py-1 text-xs font-medium rounded-sm"
+              style={{ color: 'var(--navy)', border: '1px solid var(--navy-20)' }}
+            >
+              Done
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -1516,7 +1530,7 @@ function ArchiveHeader({ query, setQuery, years, onJump }) {
   );
 }
 
-function Archive({ trips, onOpen, query, sectionRefs, onYears, userId, knownCities, onReload }) {
+function Archive({ trips, onOpen, query, sectionRefs, onYears, userId, knownCities, cityCountries, onReload }) {
   const q = query.trim().toLowerCase();
   const [adding, setAdding] = useState(false);
 
@@ -1564,6 +1578,7 @@ function Archive({ trips, onOpen, query, sectionRefs, onYears, userId, knownCiti
             <AddTripForm
               userId={userId}
               knownCities={knownCities}
+              cityCountries={cityCountries}
               onCancel={() => setAdding(false)}
               onDone={async () => {
                 setAdding(false);
@@ -1621,13 +1636,13 @@ function Archive({ trips, onOpen, query, sectionRefs, onYears, userId, knownCiti
    Upcoming
    ========================================================================== */
 
-const EMPTY_TRIP = { title: '', city: '', country: '', start_date: '', end_date: '', companions: '' };
+const EMPTY_TRIP = { title: '', city: '', country: '', start_date: '', end_date: '', companions: '', countryTouched: false };
 
 /**
  * The add-trip form, shared by Upcoming and Archive so a trip can be added
  * before or after the fact from either place.
  */
-function AddTripForm({ userId, knownCities, onDone, onCancel }) {
+function AddTripForm({ userId, knownCities, cityCountries, onDone, onCancel }) {
   const [form, setForm] = useState(EMPTY_TRIP);
   const [saving, setSaving] = useState(false);
 
@@ -1689,7 +1704,17 @@ function AddTripForm({ userId, knownCities, onDone, onCancel }) {
       <Field label="Destination">
         <input
           value={form.city}
-          onChange={(e) => setForm({ ...form, city: e.target.value })}
+          onChange={(e) => {
+            const city = e.target.value;
+            // Fill the country in from somewhere you've already been, unless
+            // you've typed one yourself
+            const guess = (cityCountries || {})[city.trim().toLowerCase()];
+            setForm((f) => ({
+              ...f,
+              city,
+              country: guess && !f.countryTouched ? guess : f.country,
+            }));
+          }}
           list="hub-cities"
           placeholder="Boom, or Copenhagen"
           className="hub-input w-full px-3 py-2"
@@ -1701,10 +1726,10 @@ function AddTripForm({ userId, knownCities, onDone, onCancel }) {
         </datalist>
       </Field>
 
-      <Field label="Country">
+      <Field label={form.country && !form.countryTouched ? 'Country (filled in for you)' : 'Country'}>
         <input
           value={form.country}
-          onChange={(e) => setForm({ ...form, country: e.target.value })}
+          onChange={(e) => setForm({ ...form, country: e.target.value, countryTouched: true })}
           list="hub-countries"
           placeholder="Pick one, or separate several with ;"
           className="hub-input w-full px-3 py-2"
@@ -1757,7 +1782,7 @@ function AddTripForm({ userId, knownCities, onDone, onCancel }) {
   );
 }
 
-function Upcoming({ trips, onOpen, onReload, userId, knownCities }) {
+function Upcoming({ trips, onOpen, onReload, userId, knownCities, cityCountries }) {
   const [adding, setAdding] = useState(false);
 
   return (
@@ -1778,6 +1803,7 @@ function Upcoming({ trips, onOpen, onReload, userId, knownCities }) {
         <AddTripForm
           userId={userId}
           knownCities={knownCities}
+          cityCountries={cityCountries}
           onCancel={() => setAdding(false)}
           onDone={async () => {
             setAdding(false);
@@ -2286,6 +2312,25 @@ function AppInner() {
     return [...s].sort();
   }, [trips]);
 
+  /**
+   * city -> country, learned from your own archive. Only trips naming a single
+   * country contribute, since a city on a "Peru; Bolivia" trip could be either.
+   */
+  const cityCountries = useMemo(() => {
+    const map = {};
+    (trips || []).forEach((t) => {
+      const list = countriesOf(t);
+      if (list.length !== 1) return;
+      const country = list[0];
+      const add = (c) => {
+        if (c && c.trim()) map[c.trim().toLowerCase()] = country;
+      };
+      add(t.city);
+      (t.days || []).forEach((d) => add(d.city));
+    });
+    return map;
+  }, [trips]);
+
   const open = useMemo(() => (trips || []).find((t) => t.id === openId) || null, [trips, openId]);
 
   if (checking) return <Spinner label="Checking your session" />;
@@ -2345,6 +2390,7 @@ function AppInner() {
             onYears={setYears}
             userId={session.user.id}
             knownCities={knownCities}
+            cityCountries={cityCountries}
             onReload={load}
             onOpen={(t) => setOpenId(t.id)}
           />
@@ -2353,6 +2399,7 @@ function AppInner() {
             trips={upcoming}
             userId={session.user.id}
             knownCities={knownCities}
+            cityCountries={cityCountries}
             onOpen={(t) => setOpenId(t.id)}
             onReload={load}
           />
