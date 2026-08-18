@@ -1516,8 +1516,9 @@ function ArchiveHeader({ query, setQuery, years, onJump }) {
   );
 }
 
-function Archive({ trips, onOpen, query, sectionRefs, onYears }) {
+function Archive({ trips, onOpen, query, sectionRefs, onYears, userId, knownCities, onReload }) {
   const q = query.trim().toLowerCase();
+  const [adding, setAdding] = useState(false);
 
   const matches = useMemo(() => {
     if (!q) return null;
@@ -1557,6 +1558,26 @@ function Archive({ trips, onOpen, query, sectionRefs, onYears }) {
   return (
     <div>
       <div className="px-5 pt-4 pb-8">
+        {/* Retroactive entry: a trip you've already been on */}
+        {!q &&
+          (adding ? (
+            <AddTripForm
+              userId={userId}
+              knownCities={knownCities}
+              onCancel={() => setAdding(false)}
+              onDone={async () => {
+                setAdding(false);
+                await onReload();
+              }}
+            />
+          ) : (
+            <div className="mb-6">
+              <Button variant="ghost" onClick={() => setAdding(true)}>
+                + Add a trip you've been on
+              </Button>
+            </div>
+          ))}
+
         {matches ? (
           matches.length === 0 ? (
             <p className="hub-faint text-sm py-8">Nothing matching “{query}”.</p>
@@ -1602,15 +1623,13 @@ function Archive({ trips, onOpen, query, sectionRefs, onYears }) {
 
 const EMPTY_TRIP = { title: '', city: '', country: '', start_date: '', end_date: '', companions: '' };
 
-function Upcoming({ trips, onOpen, onReload, userId, knownCities }) {
-  const [adding, setAdding] = useState(false);
+/**
+ * The add-trip form, shared by Upcoming and Archive so a trip can be added
+ * before or after the fact from either place.
+ */
+function AddTripForm({ userId, knownCities, onDone, onCancel }) {
   const [form, setForm] = useState(EMPTY_TRIP);
   const [saving, setSaving] = useState(false);
-
-  function closeForm() {
-    setForm(EMPTY_TRIP);   // discard the draft, so reopening starts blank
-    setAdding(false);
-  }
 
   async function save() {
     if (!form.title.trim() || !form.start_date) return;
@@ -1652,9 +1671,94 @@ function Upcoming({ trips, onOpen, onReload, userId, knownCities }) {
       }
     }
     setSaving(false);
-    closeForm();
-    await onReload();
+    setForm(EMPTY_TRIP);
+    await onDone();
   }
+
+  return (
+    <div className="hub-card p-4 mt-3 space-y-3">
+      <Field label="Trip name">
+        <input
+          value={form.title}
+          onChange={(e) => setForm({ ...form, title: e.target.value })}
+          placeholder="Tomorrowland, Copenhagen, the lads' golf trip…"
+          className="hub-input w-full px-3 py-2"
+        />
+      </Field>
+
+      <Field label="Destination">
+        <input
+          value={form.city}
+          onChange={(e) => setForm({ ...form, city: e.target.value })}
+          list="hub-cities"
+          placeholder="Boom, or Copenhagen"
+          className="hub-input w-full px-3 py-2"
+        />
+        <datalist id="hub-cities">
+          {knownCities.map((c) => (
+            <option key={c} value={c} />
+          ))}
+        </datalist>
+      </Field>
+
+      <Field label="Country">
+        <input
+          value={form.country}
+          onChange={(e) => setForm({ ...form, country: e.target.value })}
+          list="hub-countries"
+          placeholder="Pick one, or separate several with ;"
+          className="hub-input w-full px-3 py-2"
+        />
+        <datalist id="hub-countries">
+          {COUNTRY_NAMES.map((c) => (
+            <option key={c} value={c} />
+          ))}
+        </datalist>
+      </Field>
+
+      <DateField
+        label="From"
+        value={form.start_date}
+        onChange={(v) => setForm({ ...form, start_date: v })}
+      />
+      <DateField
+        label="To"
+        value={form.end_date}
+        onChange={(v) => setForm({ ...form, end_date: v })}
+      />
+
+      <div>
+        <span className="hub-eyebrow block mb-1.5">Who's coming</span>
+        <Tags
+          value={form.companions}
+          onSave={(v) => setForm({ ...form, companions: v })}
+          placeholder="Name, then Enter"
+          addLabel="+ add someone"
+          sortAlpha
+          quickAdds={['Solo', 'Big group']}
+        />
+      </div>
+
+      <div className="flex gap-2">
+        <Button onClick={save} disabled={saving || !form.title.trim() || !form.start_date}>
+          {saving ? 'Adding…' : 'Add trip'}
+        </Button>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            setForm(EMPTY_TRIP);
+            onCancel();
+          }}
+        >
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function Upcoming({ trips, onOpen, onReload, userId, knownCities }) {
+  const [adding, setAdding] = useState(false);
 
   return (
     <div className="px-5 pt-4 pb-8">
@@ -1671,75 +1775,18 @@ function Upcoming({ trips, onOpen, onReload, userId, knownCities }) {
       ))}
 
       {adding ? (
-        <div className="hub-card p-4 mt-3 space-y-3">
-          <Field label="Destination">
-            <input
-              value={form.title}
-              onChange={(e) => setForm({ ...form, title: e.target.value })}
-              list="hub-cities"
-              placeholder="Copenhagen, or South of France"
-              className="hub-input w-full px-3 py-2 text-base"
-            />
-            <datalist id="hub-cities">
-              {knownCities.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-          </Field>
-
-          <Field label="Country">
-            <input
-              value={form.country}
-              onChange={(e) => setForm({ ...form, country: e.target.value })}
-              list="hub-countries"
-              placeholder="Pick one, or separate several with ;"
-              className="hub-input w-full px-3 py-2 text-base"
-            />
-            <datalist id="hub-countries">
-              {COUNTRY_NAMES.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-          </Field>
-
-          <DateField
-            label="From"
-            value={form.start_date}
-            onChange={(v) => setForm({ ...form, start_date: v })}
-          />
-          <DateField
-            label="To"
-            value={form.end_date}
-            onChange={(v) => setForm({ ...form, end_date: v })}
-          />
-
-          <Field label="With">
-            <input
-              value={form.companions}
-              onChange={(e) => setForm({ ...form, companions: e.target.value })}
-              placeholder="Optional"
-              className="hub-input w-full px-3 py-2 text-base"
-            />
-          </Field>
-
-          <div className="flex gap-2">
-            <Button onClick={save} disabled={saving || !form.title.trim() || !form.start_date}>
-              {saving ? 'Adding…' : 'Add trip'}
-            </Button>
-            <Button variant="ghost" onClick={closeForm}>
-              Cancel
-            </Button>
-          </div>
-        </div>
+        <AddTripForm
+          userId={userId}
+          knownCities={knownCities}
+          onCancel={() => setAdding(false)}
+          onDone={async () => {
+            setAdding(false);
+            await onReload();
+          }}
+        />
       ) : (
         <div className="mt-4">
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setForm(EMPTY_TRIP);
-              setAdding(true);
-            }}
-          >
+          <Button variant="ghost" onClick={() => setAdding(true)}>
             + Add a trip
           </Button>
         </div>
@@ -1901,6 +1948,9 @@ function YearCalendar({ year, trips }) {
    Stats
    ========================================================================== */
 
+// How many travel companions to list before the "show all" link
+const PEOPLE_SHOWN = 8;
+
 function Bar({ label, value, max, note }) {
   const pct = max > 0 ? Math.round((value / max) * 100) : 0;
   return (
@@ -1918,6 +1968,7 @@ function Stats({ trips, onOpen }) {
   const past = useMemo(() => trips.filter((t) => t.start_date <= todayISO()), [trips]);
   const [openYear, setOpenYear] = useState(null);
   const [openPerson, setOpenPerson] = useState(null);
+  const [allPeople, setAllPeople] = useState(false);
 
   const stats = useMemo(() => {
     const perYear = new Map();
@@ -2012,7 +2063,7 @@ function Stats({ trips, onOpen }) {
           <p className="hub-eyebrow mb-2">Who you travel with</p>
           <p className="hub-faint text-xs mb-2">Tap a name to see the trips.</p>
           <div className="mb-8">
-            {stats.people.map(([name, list]) => {
+            {(allPeople ? stats.people : stats.people.slice(0, PEOPLE_SHOWN)).map(([name, list]) => {
               const open = openPerson === name;
               const pct = Math.round((list.length / maxPerson) * 100);
               return (
@@ -2056,6 +2107,20 @@ function Stats({ trips, onOpen }) {
                 </div>
               );
             })}
+
+            {stats.people.length > PEOPLE_SHOWN && (
+              <button
+                onClick={() => {
+                  setAllPeople((v) => !v);
+                  setOpenPerson(null);
+                }}
+                className="hub-faint text-xs underline mt-2"
+              >
+                {allPeople
+                  ? 'Show fewer'
+                  : `Show all ${stats.people.length}`}
+              </button>
+            )}
           </div>
         </>
       )}
@@ -2103,7 +2168,6 @@ function AppInner() {
   const [loadError, setLoadError] = useState(null);
   const sectionRefs = useRef({});
   const scrollRef = useRef(null);
-  const savedScroll = useRef({});   // scroll position per tab
   const prevOpen = useRef(null);
   const prevTab = useRef('archive');
 
@@ -2136,48 +2200,72 @@ function AppInner() {
   }, [session, load]);
 
   /**
-   * One scroll container serves every view, so its position has to be managed
-   * by hand: park it when opening a trip, put it back on the way out.
-   * useLayoutEffect so the restore happens before paint, with no visible jump.
+   * One scroll container serves every view, so its position is managed by hand.
+   *
+   * The position is recorded as you scroll rather than read when you navigate:
+   * by the time a layout effect runs, React has already swapped in the shorter
+   * trip view and the browser has clamped scrollTop down, so reading it there
+   * returns a smaller number and Back lands you above where you were.
    */
+  const listScroll = useRef({});      // last known position per tab
+  const suspendSave = useRef(false);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return undefined;
+    const onScroll = () => {
+      if (suspendSave.current || openId) return;
+      listScroll.current[tab] = el.scrollTop;
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [openId, tab]);
+
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
+    if (!el) return undefined;
 
     const openedTrip = openId && !prevOpen.current;
     const closedTrip = !openId && prevOpen.current;
     const switchedTrip = openId && prevOpen.current && openId !== prevOpen.current;
     const switchedTab = tab !== prevTab.current;
 
-    if (openedTrip) {
-      savedScroll.current[prevTab.current] = el.scrollTop;
+    let raf;
+    if (openedTrip || switchedTrip) {
+      suspendSave.current = true;       // ignore the clamp the swap will trigger
       el.scrollTop = 0;
-    } else if (closedTrip) {
-      const y = savedScroll.current[tab] || 0;
-      el.scrollTop = y;
-      // the list can settle a frame late; reassert once
-      requestAnimationFrame(() => {
-        if (scrollRef.current) scrollRef.current.scrollTop = y;
-      });
-    } else if (switchedTrip) {
-      el.scrollTop = 0;
-    } else if (switchedTab) {
-      el.scrollTop = savedScroll.current[tab] || 0;
+    } else if (closedTrip || switchedTab) {
+      const target = listScroll.current[tab] || 0;
+      suspendSave.current = true;
+      el.scrollTop = target;
+
+      // Flags are images and cards render in stages, so the container may not
+      // be tall enough yet. Keep reasserting for a few frames, then release.
+      let tries = 0;
+      const settle = () => {
+        if (!scrollRef.current) return;
+        if (Math.abs(scrollRef.current.scrollTop - target) > 1 && tries < 12) {
+          scrollRef.current.scrollTop = target;
+          tries += 1;
+          raf = requestAnimationFrame(settle);
+        } else {
+          suspendSave.current = false;
+        }
+      };
+      raf = requestAnimationFrame(settle);
     }
 
     prevOpen.current = openId;
     prevTab.current = tab;
-  }, [openId, tab]);
 
-  // Remember where you were as you scroll a list, so Back can return to it
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el || openId) return undefined;
-    const onScroll = () => {
-      savedScroll.current[tab] = el.scrollTop;
+    const release = setTimeout(() => {
+      suspendSave.current = false;
+    }, 400);
+
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      clearTimeout(release);
     };
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
   }, [openId, tab]);
 
   const { past, upcoming } = useMemo(() => {
@@ -2255,6 +2343,9 @@ function AppInner() {
             query={query}
             sectionRefs={sectionRefs}
             onYears={setYears}
+            userId={session.user.id}
+            knownCities={knownCities}
+            onReload={load}
             onOpen={(t) => setOpenId(t.id)}
           />
         ) : tab === 'upcoming' ? (
