@@ -815,7 +815,7 @@ function BulletEditor({ value, onChange, minRows = 6, placeholder, autoFocus, on
    Day editor
    ========================================================================== */
 
-function DayEditor({ day, items, onSave, onCancel, knownCities, previousDay }) {
+function DayEditor({ day, items, onSave, onCancel, knownCities, previousDay, isLastDay }) {
   const [text, setText] = useState(() => itemsToText(items) || '- ');
   const [city, setCity] = useState(day.city || '');
   const [stay, setStay] = useState(day.stay || '');
@@ -824,7 +824,10 @@ function DayEditor({ day, items, onSave, onCancel, knownCities, previousDay }) {
 
   async function save() {
     setSaving(true);
-    await onSave(parseBullets(text), { city: city.trim() || null, stay: stay.trim() || null });
+    await onSave(parseBullets(text), {
+      city: city.trim() || null,
+      stay: isLastDay ? null : stay.trim() || null,
+    });
     setSaving(false);
   }
 
@@ -836,12 +839,14 @@ function DayEditor({ day, items, onSave, onCancel, knownCities, previousDay }) {
         <button
           onClick={() => {
             if (previousDay.city) setCity(previousDay.city);
-            if (previousDay.stay) setStay(previousDay.stay);
+            if (previousDay.stay && !isLastDay) setStay(previousDay.stay);
           }}
           className="hub-faint text-xs underline mb-2"
         >
           ← same as {dayHeading(previousDay.date) || 'the day before'}
-          {previousDay.city ? ` (${previousDay.city}${previousDay.stay ? ', ' + previousDay.stay : ''})` : ''}
+          {previousDay.city
+            ? ` (${previousDay.city}${previousDay.stay && !isLastDay ? ', ' + previousDay.stay : ''})`
+            : ''}
         </button>
       )}
 
@@ -863,22 +868,25 @@ function DayEditor({ day, items, onSave, onCancel, knownCities, previousDay }) {
             </button>
           )}
         </Field>
-        <Field label="Staying at">
-          <input
-            value={stay}
-            onChange={(e) => setStay(e.target.value)}
-            placeholder="Hotel María Cristina"
-            className="hub-input w-full px-2 py-1.5"
-          />
-          {previousDay && previousDay.stay && previousDay.stay !== stay && (
-            <button
-              onClick={() => setStay(previousDay.stay)}
-              className="hub-faint text-xs underline mt-1"
-            >
-              same as {previousDay.stay}
-            </button>
-          )}
-        </Field>
+        {/* The last day is the journey home, so there's nowhere to stay */}
+        {!isLastDay && (
+          <Field label="Staying at">
+            <input
+              value={stay}
+              onChange={(e) => setStay(e.target.value)}
+              placeholder="Hotel María Cristina"
+              className="hub-input w-full px-2 py-1.5"
+            />
+            {previousDay && previousDay.stay && previousDay.stay !== stay && (
+              <button
+                onClick={() => setStay(previousDay.stay)}
+                className="hub-faint text-xs underline mt-1"
+              >
+                same as {previousDay.stay}
+              </button>
+            )}
+          </Field>
+        )}
       </div>
 
       <BulletEditor
@@ -1079,6 +1087,7 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
       date: newDayDate || suggestedDate,
       city: last ? last.city : trip.city,
       sort_order: days.length,
+      // no stay: a day added at the end of a trip is usually the way home
     });
     if (error) {
       alert(`Couldn't add that day: ${error.message}`);
@@ -1258,6 +1267,7 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
                   items={items}
                   knownCities={knownCities}
                   previousDay={dayIndex > 0 ? days[dayIndex - 1] : null}
+                  isLastDay={dayIndex === days.length - 1 && days.length > 1}
                   onSave={(rows, fields) => saveDay(day, rows, fields)}
                   onCancel={() => setEditingDay(null)}
                 />
