@@ -1917,10 +1917,12 @@ function Bar({ label, value, max, note }) {
 function Stats({ trips, onOpen }) {
   const past = useMemo(() => trips.filter((t) => t.start_date <= todayISO()), [trips]);
   const [openYear, setOpenYear] = useState(null);
+  const [openPerson, setOpenPerson] = useState(null);
 
   const stats = useMemo(() => {
     const perYear = new Map();
     const countries = new Map();
+    const people = new Map();
     let nights = 0;
 
     past.forEach((t) => {
@@ -1932,16 +1934,29 @@ function Stats({ trips, onOpen }) {
       }
       countriesOf(t).forEach((c) => countries.set(c, (countries.get(c) || 0) + 1));
       nights += nightsBetween(t.start_date, t.end_date) || 0;
+
+      (t.companions || '')
+        .split(/\s*[;\u00b7]\s*|\s*,\s*/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .forEach((name) => {
+          if (!people.has(name)) people.set(name, []);
+          people.get(name).push(t);
+        });
     });
 
     return {
       perYear: [...perYear.entries()].sort((a, b) => b[0] - a[0]),
       countries: [...countries.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])),
+      people: [...people.entries()].sort(
+        (a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0])
+      ),
       nights,
     };
   }, [past]);
 
   const maxTrips = Math.max(1, ...stats.perYear.map(([, v]) => v.trips));
+  const maxPerson = Math.max(1, ...stats.people.map(([, l]) => l.length));
 
   return (
     <div className="px-5 pt-4 pb-8">
@@ -1990,6 +2005,60 @@ function Stats({ trips, onOpen }) {
           </div>
         ))}
       </div>
+
+      {stats.people.length > 0 && (
+        <>
+          <div className="hub-rule mb-4" />
+          <p className="hub-eyebrow mb-2">Who you travel with</p>
+          <p className="hub-faint text-xs mb-2">Tap a name to see the trips.</p>
+          <div className="mb-8">
+            {stats.people.map(([name, list]) => {
+              const open = openPerson === name;
+              const pct = Math.round((list.length / maxPerson) * 100);
+              return (
+                <div key={name}>
+                  <button
+                    onClick={() => setOpenPerson(open ? null : name)}
+                    className="w-full text-left flex items-center gap-3 py-1"
+                    aria-expanded={open}
+                  >
+                    <span className="text-xs w-24 shrink-0 truncate" style={{ color: 'var(--navy)' }}>
+                      {name}
+                    </span>
+                    <span className="flex-1 h-3" style={{ backgroundColor: 'var(--navy-10)' }}>
+                      <span
+                        className="block h-3"
+                        style={{ width: `${pct}%`, backgroundColor: 'var(--navy)' }}
+                      />
+                    </span>
+                    <span className="hub-faint text-xs w-12 shrink-0 text-right">
+                      {list.length}
+                    </span>
+                  </button>
+                  {open && (
+                    <div className="pl-24 pb-2">
+                      {[...list]
+                        .sort((x, y) => (y.start_date || '').localeCompare(x.start_date || ''))
+                        .map((t) => (
+                          <button
+                            key={t.id}
+                            onClick={() => onOpen(t)}
+                            className="w-full text-left flex items-baseline justify-between gap-3 py-1 border-b hub-border"
+                          >
+                            <span className="text-sm">{t.title}</span>
+                            <span className="hub-faint text-xs shrink-0">
+                              {yearOf(t.start_date)}
+                            </span>
+                          </button>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       <div className="hub-rule mb-4" />
       <p className="hub-eyebrow mb-2">Countries</p>
