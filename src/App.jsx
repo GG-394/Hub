@@ -108,6 +108,15 @@ function tripPlaces(trip) {
    updated on its own, without the two files having to move together.
    ========================================================================== */
 
+/** The ISO date n days on from the given one. */
+function addDays(iso, n) {
+  const d = parseISO(iso);
+  if (!d) return null;
+  d.setDate(d.getDate() + n);
+  const p = (v) => String(v).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 /** The ISO date one day on from the given one. */
 function nextDay(iso) {
   const d = parseISO(iso);
@@ -836,14 +845,17 @@ function DayEditor({ day, items, onSave, onCancel, knownCities, previousDay, isL
   const [city, setCity] = useState(day.city || '');
   const [stay, setStay] = useState(day.stay || '');
   const [saving, setSaving] = useState(false);
+  const [fillForward, setFillForward] = useState(false);
   const boxRef = useRef(null);
 
-  async function save(fillForward) {
+  const canFill = !isLastDay && stay.trim() && laterDayCount > 0;
+
+  async function save() {
     setSaving(true);
     await onSave(
       parseBullets(text),
       { city: city.trim() || null, stay: isLastDay ? null : stay.trim() || null },
-      fillForward
+      canFill && fillForward
     );
     setSaving(false);
   }
@@ -902,6 +914,36 @@ function DayEditor({ day, items, onSave, onCancel, knownCities, previousDay, isL
                 same as {previousDay.stay}
               </button>
             )}
+
+            {canFill && (
+              <button
+                onClick={() => setFillForward((v) => !v)}
+                className="flex items-start gap-2 mt-2 text-left"
+                aria-pressed={fillForward}
+              >
+                <span
+                  className="shrink-0 flex items-center justify-center"
+                  style={{
+                    width: '15px',
+                    height: '15px',
+                    marginTop: '1px',
+                    borderRadius: '2px',
+                    border: `1px solid ${fillForward ? 'var(--navy)' : 'var(--navy-20)'}`,
+                    backgroundColor: fillForward ? 'var(--navy)' : 'transparent',
+                    color: 'var(--cream)',
+                    fontSize: '10px',
+                    lineHeight: 1,
+                  }}
+                  aria-hidden="true"
+                >
+                  {fillForward ? '✓' : ''}
+                </span>
+                <span className="text-xs hub-muted leading-snug">
+                  Use for the next {laterDayCount} {laterDayCount === 1 ? 'day' : 'days'} too
+                  <span className="hub-faint"> — accommodation only</span>
+                </span>
+              </button>
+            )}
           </Field>
         )}
       </div>
@@ -922,16 +964,10 @@ function DayEditor({ day, items, onSave, onCancel, knownCities, previousDay, isL
         (<span className="italic">- great, cheap</span>).
       </p>
 
-      <div className="flex flex-wrap gap-2 mt-3">
-        <Button onClick={() => save(false)} disabled={saving}>
+      <div className="flex gap-2 mt-3">
+        <Button onClick={save} disabled={saving}>
           {saving ? 'Saving…' : 'Save day'}
         </Button>
-        {!isLastDay && stay.trim() && laterDayCount > 0 && (
-          <Button variant="ghost" onClick={() => save(true)} disabled={saving}>
-            Save &amp; use for the next {laterDayCount}{' '}
-            {laterDayCount === 1 ? 'day' : 'days'}
-          </Button>
-        )}
         <Button variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
@@ -982,6 +1018,11 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
   const [editingNotes, setEditingNotes] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(trip.title);
+  const [editingDates, setEditingDates] = useState(false);
+  const [dateDraft, setDateDraft] = useState({
+    start: trip.start_date || '',
+    end: trip.end_date || '',
+  });
   const [notesDraft, setNotesDraft] = useState(trip.notes || '');
   // What the card shows today: either the manual list or the derived cities.
   // Editing writes it back explicitly, so removing a tag persists.
@@ -1034,6 +1075,51 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
       return;
     }
     setEditingName(false);
+    await onReload();
+  }
+
+  /**
+   * Some older itineraries only said "Day 1" or "Thursday", so the import could
+   * only guess the month. Setting real dates here also dates the days, as long
+   * as none of them has a date already.
+   */
+  async function saveDates() {
+    const start = dateDraft.start;
+    if (!start) return;
+    const allUndated = days.length > 0 && days.every((d) => !d.date);
+
+    // If no end date was given, infer it from the number of days
+    const end =
+      dateDraft.end ||
+      (allUndated && days.length > 1 ? addDays(start, days.length - 1) : trip.end_date) ||
+      null;
+
+    const { error } = await supabase
+      .from('trips')
+      .update({ start_date: start, end_date: end })
+      .eq('id', trip.id);
+    if (error) {
+      alert(`Couldn't save the dates: ${error.message}`);
+      return;
+    }
+
+    if (allUndated) {
+      const ordered = [...days].sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0));
+      for (let i = 0; i < ordered.length; i += 1) {
+        const iso = addDays(start, i);
+        // eslint-disable-next-line no-await-in-loop
+        const { error: dayErr } = await supabase
+          .from('days')
+          .update({ date: iso })
+          .eq('id', ordered[i].id);
+        if (dayErr) {
+          alert(`Dates saved, but day ${i + 1} failed: ${dayErr.message}`);
+          break;
+        }
+      }
+    }
+
+    setEditingDates(false);
     await onReload();
   }
 
@@ -1198,6 +1284,56 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
           ) : (
             <button onClick={() => setEditingName(true)} className="text-sm">
               {trip.title}
+              <span className="hub-faint text-xs underline ml-2">edit</span>
+            </button>
+          )}
+        </div>
+
+        <div className="mb-3">
+          <p className="hub-eyebrow mb-1.5">Dates</p>
+          {editingDates ? (
+            <div className="space-y-2">
+              <DateField
+                label="From"
+                value={dateDraft.start}
+                onChange={(v) =>
+                  setDateDraft((d) => ({
+                    start: v,
+                    end: !d.end || (v && d.end < v) ? v : d.end,
+                  }))
+                }
+              />
+              <DateField
+                label="To"
+                value={dateDraft.end}
+                min={dateDraft.start || undefined}
+                onChange={(v) => setDateDraft((d) => ({ ...d, end: v }))}
+              />
+              {days.length > 0 && days.every((d) => !d.date) && (
+                <p className="hub-faint text-xs leading-relaxed">
+                  The {days.length} days here have no dates, so they'll be dated in order
+                  from the start date.
+                </p>
+              )}
+              <div className="flex gap-2">
+                <Button onClick={saveDates} disabled={!dateDraft.start}>
+                  Save dates
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setDateDraft({ start: trip.start_date || '', end: trip.end_date || '' });
+                    setEditingDates(false);
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setEditingDates(true)} className="text-sm">
+              {dateRange(trip.start_date, trip.end_date)}
+              {!trip.end_date && <span className="hub-faint italic ml-1">(month only)</span>}
               <span className="hub-faint text-xs underline ml-2">edit</span>
             </button>
           )}
