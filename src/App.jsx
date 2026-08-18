@@ -1022,6 +1022,7 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
   const [dateDraft, setDateDraft] = useState({
     start: trip.start_date || '',
     end: trip.end_date || '',
+    endTouched: !!trip.end_date,
   });
   const [notesDraft, setNotesDraft] = useState(trip.notes || '');
   // What the card shows today: either the manual list or the derived cities.
@@ -1297,17 +1298,23 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
                 label="From"
                 value={dateDraft.start}
                 onChange={(v) =>
-                  setDateDraft((d) => ({
-                    start: v,
-                    end: !d.end || (v && d.end < v) ? v : d.end,
-                  }))
+                  setDateDraft((d) => {
+                    // With undated days, the end follows from how many there are
+                    const span = days.length > 1 && days.every((x) => !x.date) ? days.length - 1 : 0;
+                    const inferred = v ? addDays(v, span) : '';
+                    return {
+                      start: v,
+                      end: !d.endTouched || !d.end || (v && d.end < v) ? inferred : d.end,
+                      endTouched: d.endTouched,
+                    };
+                  })
                 }
               />
               <DateField
                 label="To"
                 value={dateDraft.end}
                 min={dateDraft.start || undefined}
-                onChange={(v) => setDateDraft((d) => ({ ...d, end: v }))}
+                onChange={(v) => setDateDraft((d) => ({ ...d, end: v, endTouched: true }))}
               />
               {days.length > 0 && days.every((d) => !d.date) && (
                 <p className="hub-faint text-xs leading-relaxed">
@@ -1322,7 +1329,11 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
                 <Button
                   variant="ghost"
                   onClick={() => {
-                    setDateDraft({ start: trip.start_date || '', end: trip.end_date || '' });
+                    setDateDraft({
+                      start: trip.start_date || '',
+                      end: trip.end_date || '',
+                      endTouched: !!trip.end_date,
+                    });
                     setEditingDates(false);
                   }}
                 >
@@ -2333,8 +2344,13 @@ function Stats({ trips, onOpen }) {
       <div className="hub-rule mb-4" />
       <p className="hub-eyebrow mb-2">Countries</p>
       <div className="text-sm leading-relaxed">
-        {stats.countries.map(([c, n]) => (
-          <div key={c} className="flex items-center justify-between py-1 border-b hub-border">
+        {stats.countries.map(([c, n], i) => (
+          <div
+            key={c}
+            className="flex items-center justify-between py-1"
+            // rule between rows only, so the list doesn't end on a stray line
+            style={i > 0 ? { borderTop: '1px solid var(--navy-10)' } : undefined}
+          >
             <span className="flex items-center gap-2">
               <Flag country={c} size={20} />
               {c}
