@@ -1138,7 +1138,7 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
    * Copy this day's accommodation across every later day, skipping the last one
    * since that's the journey home. The map-link toggle comes along with it.
    */
-  async function fillStayForward(day, stay, mappable) {
+  async function fillStayForward(day, stay) {
     const idx = days.findIndex((d) => d.id === day.id);
     if (idx === -1) return;
     const lastIdx = days.length - 1;
@@ -1148,9 +1148,11 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
       .map((d) => d.id);
     if (!targets.length) return;
 
+    // Left unlinked on purpose: linking is a deliberate act, and one tap on any
+    // of them will link the whole run (see toggleStayLink).
     const { error } = await supabase
       .from('days')
-      .update({ stay: stay || null, stay_mappable: stay ? mappable : null })
+      .update({ stay: stay || null, stay_mappable: stay ? false : null })
       .in('id', targets);
     if (error) alert(`Couldn't fill the rest of the trip: ${error.message}`);
   }
@@ -1204,7 +1206,7 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
       }
     }
     if (fillForward && dayFields) {
-      await fillStayForward(day, dayFields.stay, day.stay_mappable ?? true);
+      await fillStayForward(day, dayFields.stay);
     }
     setEditingDay(null);
     await onReload();
@@ -1234,8 +1236,18 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
     await onReload();
   }
 
+  /**
+   * Linking is per-accommodation rather than per-day: toggle one night at the
+   * María Cristina and every night there follows, which is almost always what
+   * you meant. Different hotels on the same trip are untouched.
+   */
   async function toggleStayLink(day, next) {
-    const { error } = await supabase.from('days').update({ stay_mappable: next }).eq('id', day.id);
+    const name = (day.stay || '').trim().toLowerCase();
+    const ids = name
+      ? days.filter((d) => (d.stay || '').trim().toLowerCase() === name).map((d) => d.id)
+      : [day.id];
+
+    const { error } = await supabase.from('days').update({ stay_mappable: next }).in('id', ids);
     if (error) {
       alert(`Couldn't update that: ${error.message}`);
       return;
@@ -1422,8 +1434,8 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
                         onClick={() => toggleStayLink(day, !day.stay_mappable)}
                         title={
                           day.stay_mappable
-                            ? 'Remove the map link'
-                            : 'Link this to Google Maps'
+                            ? 'Unlink — every night here is unlinked too'
+                            : 'Link to Google Maps — every night here is linked too'
                         }
                         aria-label={
                           day.stay_mappable ? `Unlink ${day.stay}` : `Link ${day.stay} to Google Maps`
