@@ -707,14 +707,18 @@ function ItemRow({ item, city, depth = 0, onToggleLink }) {
           onClick={() => onToggleLink(item, !linked)}
           title={linked ? 'Remove the map link' : 'Link this to Google Maps'}
           aria-label={linked ? `Unlink ${item.title}` : `Link ${item.title} to Google Maps`}
-          className="shrink-0"
+          className="shrink-0 flex items-center justify-center"
           style={{
             color: linked ? 'var(--navy)' : 'var(--navy-45)',
-            opacity: linked ? 0.85 : 0.3,
-            marginTop: '3px',
+            opacity: linked ? 0.85 : 0.35,
+            // a 36px target with negative margins, so it's easy to hit without
+            // pushing the row around
+            width: '36px',
+            height: '30px',
+            margin: '-4px -10px -4px 0',
           }}
         >
-          <Icon name="link" size={12} />
+          <Icon name="link" size={14} />
         </button>
       </div>
     </div>
@@ -779,16 +783,28 @@ function BulletEditor({ value, onChange, minRows = 6, placeholder, autoFocus, on
     if (e.key === 'Enter') {
       e.preventDefault();
       const lineStart = v.lastIndexOf('\n', selectionStart - 1) + 1;
+      const lineEndRaw = v.indexOf('\n', selectionStart);
+      const lineEnd = lineEndRaw === -1 ? v.length : lineEndRaw;
+      const fullLine = v.slice(lineStart, lineEnd);
       const currentLine = v.slice(lineStart, selectionStart);
-      const indent = currentLine.match(/^ */)[0];
+      const indent = fullLine.match(/^ */)[0];
 
-      // Enter on an empty bullet outdents, then clears
-      if (/^\s*-\s*$/.test(currentLine)) {
+      // A bullet with nothing on it: outdent, then clear
+      if (/^\s*-\s*$/.test(fullLine)) {
         if (indent.length > 0) {
           shift(-1);
           return;
         }
         apply(`${v.slice(0, lineStart)}\n${v.slice(selectionEnd)}`, lineStart + 1);
+        return;
+      }
+
+      // Caret at or inside the bullet marker: push this line down and leave an
+      // empty bullet above, rather than splitting the marker in half
+      const marker = fullLine.match(/^\s*[-\u2022*]\s*/);
+      if (marker && selectionStart <= lineStart + marker[0].length && fullLine.trim().length > 1) {
+        const inserted = `${indent}- \n`;
+        apply(v.slice(0, lineStart) + inserted + v.slice(lineStart), selectionStart + inserted.length);
         return;
       }
 
@@ -1185,6 +1201,11 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
     await supabase.from('items').delete().eq('day_id', day.id);
 
     if (rows.length) {
+      // Saving replaces the day's rows, so the per-item map-link choice has to
+      // be carried across by title — otherwise every link is silently dropped.
+      const priorLinks = new Map(
+        (day.items || []).map((i) => [i.title.trim().toLowerCase(), i.mappable])
+      );
       const ids = rows.map(() => crypto.randomUUID());
       const payload = rows.map((r, idx) => ({
         id: ids[idx],
@@ -1197,6 +1218,11 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
         title: r.title,
         notes: r.notes,
         maps_url: r.maps_url,
+        mappable: (() => {
+          const prior = priorLinks.get(r.title.trim().toLowerCase());
+          if (prior !== undefined && prior !== null) return prior;
+          return r.title.includes(' @ ');   // same default as the initial import
+        })(),
       }));
       payload.sort((a, b) => (a.parent_id ? 1 : 0) - (b.parent_id ? 1 : 0));
       const { error } = await supabase.from('items').insert(payload);
@@ -1431,6 +1457,14 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
                         day.stay
                       )}
                       <button
+                        className="flex items-center justify-center shrink-0"
+                        style={{
+                          width: '34px',
+                          height: '28px',
+                          margin: '-4px -8px',
+                          color: day.stay_mappable ? 'var(--navy)' : 'var(--navy-45)',
+                          opacity: day.stay_mappable ? 0.85 : 0.35,
+                        }}
                         onClick={() => toggleStayLink(day, !day.stay_mappable)}
                         title={
                           day.stay_mappable
@@ -1440,12 +1474,8 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
                         aria-label={
                           day.stay_mappable ? `Unlink ${day.stay}` : `Link ${day.stay} to Google Maps`
                         }
-                        style={{
-                          color: day.stay_mappable ? 'var(--navy)' : 'var(--navy-45)',
-                          opacity: day.stay_mappable ? 0.85 : 0.3,
-                        }}
                       >
-                        <Icon name="link" size={11} />
+                        <Icon name="link" size={13} />
                       </button>
                     </span>
                   )}
