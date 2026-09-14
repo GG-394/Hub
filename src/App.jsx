@@ -669,6 +669,44 @@ function SignIn() {
   );
 }
 
+/**
+ * Which city each item on a day belongs to.
+ *
+ * A day records one location — where you slept — but you often spend the
+ * morning somewhere else and travel in between. So items before the first
+ * travel line are placed in the previous day's city, and everything from that
+ * line onwards in this day's. The travel line itself counts as departing, so it
+ * stays with the old city.
+ *
+ * With no travel line, or no previous day, everything uses the day's own city:
+ * sleeping somewhere is the best guess available.
+ */
+function resolveItemCities(items, dayCity, previousCity) {
+  const map = new Map();
+  const fallback = dayCity || previousCity || null;
+
+  if (!previousCity || !dayCity || previousCity === dayCity) {
+    items.forEach((i) => map.set(i.id, fallback));
+    return map;
+  }
+
+  const roots = items.filter((i) => !i.parent_id).sort((x, y) => x.sort_order - y.sort_order);
+  const childrenOf = (id) => items.filter((i) => i.parent_id === id);
+
+  let current = previousCity;
+  roots.forEach((root) => {
+    const isTravel = root.kind === 'travel' || /\b(fly|flight|train|bus|coach|ferry|transfer|drive)\b/i.test(root.title || '');
+    map.set(root.id, current);                       // the travel line departs
+    childrenOf(root.id).forEach((c) => map.set(c.id, current));
+    if (isTravel) current = dayCity;                 // everything after has moved
+  });
+
+  items.forEach((i) => {
+    if (!map.has(i.id)) map.set(i.id, current);
+  });
+  return map;
+}
+
 /* ==========================================================================
    Item row
    ========================================================================== */
@@ -1428,6 +1466,8 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
           const items = [...(day.items || [])].sort((a, b) => a.sort_order - b.sort_order);
           const roots = items.filter((i) => !i.parent_id);
           const childrenOf = (id) => items.filter((i) => i.parent_id === id);
+          const prevCity = dayIndex > 0 ? days[dayIndex - 1].city : null;
+          const itemCities = resolveItemCities(items, cityFor(day), prevCity);
           const isEditing = editingDay === day.id;
           // Heading always comes from the stored date, so a typo in the original
           // doc (wrong weekday, skipped day) can't survive into the app.
@@ -1511,12 +1551,16 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
                 <div>
                   {roots.map((item) => (
                     <React.Fragment key={item.id}>
-                      <ItemRow item={item} city={cityFor(day)} onToggleLink={toggleLink} />
+                      <ItemRow
+                        item={item}
+                        city={itemCities.get(item.id) || cityFor(day)}
+                        onToggleLink={toggleLink}
+                      />
                       {childrenOf(item.id).map((child) => (
                         <ItemRow
                           key={child.id}
                           item={child}
-                          city={cityFor(day)}
+                          city={itemCities.get(child.id) || cityFor(day)}
                           depth={1}
                           onToggleLink={toggleLink}
                         />
@@ -2694,3 +2738,4 @@ export default function App() {
     </ErrorBoundary>
   );
 }
+
