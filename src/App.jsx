@@ -1026,8 +1026,129 @@ function DayEditor({ day, items, onSave, onCancel, knownCities, previousDay, isL
    Trip detail
    ========================================================================== */
 
+/**
+ * Sharing lives in the trip's header ribbon. No URL on display: it's long,
+ * it wraps badly, and there's nothing useful to do with it by eye — Send and
+ * Copy cover both ways of getting it out.
+ */
+function SharePanel({ trip, onCreate, onRevoke, onSetNotes }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const origin = typeof window === 'undefined' ? '' : window.location.origin;
+  const url = trip.share_token ? `${origin}/t/${trip.share_token}` : null;
+
+  async function onButton() {
+    if (url) {
+      setOpen((v) => !v);
+      return;
+    }
+    setBusy(true);
+    await onCreate();
+    setBusy(false);
+    setOpen(true);
+  }
+
+  async function send() {
+    if (!url) return;
+    const payload = {
+      title: `${trip.title} — Hub`,
+      text: `${trip.title}, ${dateRange(trip.start_date, trip.end_date)}`,
+      url,
+    };
+    if (navigator.share) {
+      try {
+        await navigator.share(payload);
+        return;
+      } catch {
+        /* cancelled, or unsupported */
+      }
+    }
+    copy();
+  }
+
+  async function copy() {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      window.prompt('Copy this link', url);
+    }
+  }
+
+  return (
+    <div>
+      <button
+        onClick={onButton}
+        disabled={busy}
+        className="flex items-center gap-1.5 text-xs"
+        style={{ color: url ? 'var(--navy)' : 'var(--navy-45)' }}
+        aria-expanded={open}
+      >
+        <Icon name="link" size={13} />
+        {busy ? 'Creating…' : url ? 'Shared' : 'Share'}
+      </button>
+
+      {open && url && (
+        <div className="hub-card p-3 mt-2">
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={send}>Send link</Button>
+            <Button variant="ghost" onClick={copy}>
+              {copied ? 'Copied' : 'Copy link'}
+            </Button>
+          </div>
+
+          <button
+            onClick={() => onSetNotes(!trip.share_notes)}
+            className="flex items-start gap-2 mt-3 text-left"
+            aria-pressed={!!trip.share_notes}
+          >
+            <span
+              className="shrink-0 flex items-center justify-center"
+              style={{
+                width: '15px',
+                height: '15px',
+                marginTop: '1px',
+                borderRadius: '2px',
+                border: `1px solid ${trip.share_notes ? 'var(--navy)' : 'var(--navy-20)'}`,
+                backgroundColor: trip.share_notes ? 'var(--navy)' : 'transparent',
+                color: 'var(--cream)',
+                fontSize: '10px',
+                lineHeight: 1,
+              }}
+              aria-hidden="true"
+            >
+              {trip.share_notes ? '✓' : ''}
+            </span>
+            <span className="text-xs hub-muted leading-snug">
+              Include my notes
+              <span className="hub-faint"> — your comments on each place, and the
+              miscellaneous notes</span>
+            </span>
+          </button>
+
+          <p className="hub-faint text-xs mt-3 leading-relaxed">
+            The link stays live: anyone holding it sees this trip as you change it.
+          </p>
+          <button
+            onClick={async () => {
+              await onRevoke();
+              setOpen(false);
+            }}
+            className="hub-faint text-xs underline mt-1.5"
+          >
+            Stop sharing
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Pinned above the scroll area: back button and trip identity. */
-function TripHeader({ trip, onBack }) {
+function TripHeader({ trip, onBack, onCreateShare, onRevokeShare, onSetShareNotes }) {
   const nights = nightsBetween(trip.start_date, trip.end_date);
   return (
     <div
@@ -1040,9 +1161,17 @@ function TripHeader({ trip, onBack }) {
         borderBottom: '1px solid var(--navy-10)',
       }}
     >
-      <button onClick={onBack} className="hub-muted text-sm mb-1.5">
-        ← Back
-      </button>
+      <div className="flex items-center justify-between gap-3 mb-1.5">
+        <button onClick={onBack} className="hub-muted text-sm">
+          ← Back
+        </button>
+        <SharePanel
+          trip={trip}
+          onCreate={onCreateShare}
+          onRevoke={onRevokeShare}
+          onSetNotes={onSetShareNotes}
+        />
+      </div>
       <div className="flex items-baseline gap-2.5 flex-wrap">
         <h1 className="hub-display text-2xl leading-tight">{trip.title}</h1>
         <Flags trip={trip} size={17} />
@@ -1070,7 +1199,6 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(trip.title);
   const [editingDates, setEditingDates] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [dateDraft, setDateDraft] = useState({
     start: trip.start_date || '',
     end: trip.end_date || '',
@@ -1174,70 +1302,6 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
 
     setEditingDates(false);
     await onReload();
-  }
-
-  const shareUrl = trip.share_token ? `${window.location.origin}/t/${trip.share_token}` : null;
-
-  async function startSharing() {
-    const token = crypto.randomUUID().replace(/-/g, '');   // 32 hex characters
-    const { error } = await supabase
-      .from('trips')
-      .update({ share_token: token, share_notes: false })
-      .eq('id', trip.id);
-    if (error) {
-      alert(`Couldn't create the link: ${error.message}`);
-      return;
-    }
-    await onReload();
-  }
-
-  async function stopSharing() {
-    if (!confirm('Stop sharing? Anyone with the old link will lose access.')) return;
-    const { error } = await supabase
-      .from('trips')
-      .update({ share_token: null })
-      .eq('id', trip.id);
-    if (error) {
-      alert(`Couldn't revoke the link: ${error.message}`);
-      return;
-    }
-    await onReload();
-  }
-
-  async function setShareNotes(next) {
-    const { error } = await supabase
-      .from('trips')
-      .update({ share_notes: next })
-      .eq('id', trip.id);
-    if (error) {
-      alert(`Couldn't change that: ${error.message}`);
-      return;
-    }
-    await onReload();
-  }
-
-  async function shareLink() {
-    if (!shareUrl) return;
-    const payload = {
-      title: `${trip.title} — Hub`,
-      text: `${trip.title}, ${dateRange(trip.start_date, trip.end_date)}`,
-      url: shareUrl,
-    };
-    if (navigator.share) {
-      try {
-        await navigator.share(payload);
-        return;
-      } catch {
-        // cancelled, or unavailable — fall through to the clipboard
-      }
-    }
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      alert(shareUrl);
-    }
   }
 
   async function saveNotes() {
@@ -1498,54 +1562,6 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
             sortAlpha
             quickAdds={['Solo', 'Big group']}
           />
-        </div>
-
-        <div className="mb-3">
-          <p className="hub-eyebrow mb-1.5">Share</p>
-          {shareUrl ? (
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button onClick={shareLink}>{copied ? 'Link copied' : 'Send link'}</Button>
-                <button onClick={stopSharing} className="hub-faint text-xs underline">
-                  stop sharing
-                </button>
-              </div>
-              <p className="hub-faint text-xs mt-1.5 break-all">{shareUrl}</p>
-
-              <button
-                onClick={() => setShareNotes(!trip.share_notes)}
-                className="flex items-start gap-2 mt-2 text-left"
-                aria-pressed={!!trip.share_notes}
-              >
-                <span
-                  className="shrink-0 flex items-center justify-center"
-                  style={{
-                    width: '15px',
-                    height: '15px',
-                    marginTop: '1px',
-                    borderRadius: '2px',
-                    border: `1px solid ${trip.share_notes ? 'var(--navy)' : 'var(--navy-20)'}`,
-                    backgroundColor: trip.share_notes ? 'var(--navy)' : 'transparent',
-                    color: 'var(--cream)',
-                    fontSize: '10px',
-                    lineHeight: 1,
-                  }}
-                  aria-hidden="true"
-                >
-                  {trip.share_notes ? '✓' : ''}
-                </span>
-                <span className="text-xs hub-muted leading-snug">
-                  Include my notes
-                  <span className="hub-faint"> — your comments on each place, and the
-                  miscellaneous notes. Off by default.</span>
-                </span>
-              </button>
-            </div>
-          ) : (
-            <Button variant="ghost" onClick={startSharing}>
-              Create a read-only link
-            </Button>
-          )}
         </div>
 
         <div>
@@ -2677,7 +2693,10 @@ function PublicTrip({ token }) {
 
   if (!state.trip) {
     return (
-      <div className="min-h-screen flex flex-col justify-center px-7 max-w-md mx-auto">
+      <div
+        className="flex flex-col justify-center px-7 max-w-md mx-auto"
+        style={{ height: '100dvh' }}
+      >
         <Logo size={26} />
         <h1 className="hub-display text-3xl mt-3 mb-2">Link not found</h1>
         <p className="hub-muted text-sm leading-relaxed">
@@ -2693,7 +2712,11 @@ function PublicTrip({ token }) {
   const places = tripPlaces(trip);
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: 'var(--cream)' }}>
+    // body has overflow hidden for the app shell, so this page scrolls itself
+    <div
+      className="hub-scroll"
+      style={{ backgroundColor: 'var(--cream)', height: '100dvh', overflowY: 'auto' }}
+    >
       <div className="max-w-2xl mx-auto">
         <div className="flex items-center gap-2 px-5 pt-4 pb-3" style={{ borderBottom: '1px solid var(--navy-10)' }}>
           <Logo size={20} />
@@ -2830,6 +2853,18 @@ function AppInner() {
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
     return () => sub.subscription.unsubscribe();
   }, []);
+
+  const updateTrip = useCallback(
+    async (id, patch) => {
+      const { error } = await supabase.from('trips').update(patch).eq('id', id);
+      if (error) {
+        alert(`Couldn't update that: ${error.message}`);
+        return false;
+      }
+      return true;
+    },
+    []
+  );
 
   const load = useCallback(async () => {
     const { data, error } = await supabase
@@ -2987,7 +3022,21 @@ function AppInner() {
         <BrandBar />
 
         {open ? (
-          <TripHeader trip={open} onBack={() => setOpenId(null)} />
+          <TripHeader
+            trip={open}
+            onBack={() => setOpenId(null)}
+            onCreateShare={async () => {
+              const token = crypto.randomUUID().replace(/-/g, '');   // 32 hex chars
+              if (await updateTrip(open.id, { share_token: token, share_notes: false })) await load();
+            }}
+            onRevokeShare={async () => {
+              if (!confirm('Stop sharing? Anyone holding the link loses access.')) return;
+              if (await updateTrip(open.id, { share_token: null })) await load();
+            }}
+            onSetShareNotes={async (next) => {
+              if (await updateTrip(open.id, { share_notes: next })) await load();
+            }}
+          />
         ) : tab === 'archive' ? (
           <ArchiveHeader
             query={query}
