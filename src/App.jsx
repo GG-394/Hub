@@ -1034,6 +1034,7 @@ function DayEditor({ day, items, onSave, onCancel, knownCities, previousDay, isL
 function SharePanel({ trip, onCreate, onRevoke, onSetNotes }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const origin = typeof window === 'undefined' ? '' : window.location.origin;
   const url = trip.share_token ? `${origin}/t/${trip.share_token}` : null;
@@ -1083,11 +1084,15 @@ function SharePanel({ trip, onCreate, onRevoke, onSetNotes }) {
       <button
         onClick={onButton}
         disabled={busy}
-        className="flex items-center gap-1.5 text-xs"
-        style={{ color: url ? 'var(--navy)' : 'var(--navy-45)' }}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-sm disabled:opacity-40"
+        style={
+          url
+            ? { backgroundColor: 'transparent', color: 'var(--navy)', border: '1px solid var(--navy-20)' }
+            : { backgroundColor: 'var(--navy)', color: 'var(--cream)' }
+        }
         aria-expanded={open}
       >
-        <Icon name="link" size={13} />
+        <Icon name="link" size={12} />
         {busy ? 'Creating…' : url ? 'Shared' : 'Share'}
       </button>
 
