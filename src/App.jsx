@@ -159,6 +159,8 @@ const ICONS = {
   calendar: { d: 'M4 6.5h16V20H4zM4 10.5h16M8.5 3.5v4M15.5 3.5v4', mode: 'stroke' },
   chart:    { d: 'M3.5 20.5h17M7 20.5v-6.5M12 20.5V6.5M17 20.5v-9.5', mode: 'stroke' },
   people:   { d: 'M2.5 20.5v-1.8a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v1.8M8.5 10.5a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4M16.5 4.4a3.2 3.2 0 0 1 0 6.2M21.5 20.5v-1.8a4 4 0 0 0-3-3.85', mode: 'stroke' },
+  check:    { d: 'M4 12.5 9.5 18 20 6.5', mode: 'stroke' },
+  close:    { d: 'M6 6l12 12M18 6L6 18', mode: 'stroke' },
 };
 
 function Icon({ name, size = 14 }) {
@@ -1039,15 +1041,36 @@ function SharePanel({ trip, onCreate, onRevoke, onSetNotes }) {
   const origin = typeof window === 'undefined' ? '' : window.location.origin;
   const url = trip.share_token ? `${origin}/t/${trip.share_token}` : null;
 
+  // Escape closes, as you'd expect of a dialog
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
+
   async function onButton() {
     if (url) {
-      setOpen((v) => !v);
+      setOpen(true);
       return;
     }
     setBusy(true);
     await onCreate();
     setBusy(false);
     setOpen(true);
+  }
+
+  async function copy() {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2200);
+    } catch {
+      window.prompt('Copy this link', url);
+    }
   }
 
   async function send() {
@@ -1068,19 +1091,8 @@ function SharePanel({ trip, onCreate, onRevoke, onSetNotes }) {
     copy();
   }
 
-  async function copy() {
-    if (!url) return;
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      window.prompt('Copy this link', url);
-    }
-  }
-
   return (
-    <div>
+    <>
       <button
         onClick={onButton}
         disabled={busy}
@@ -1090,65 +1102,125 @@ function SharePanel({ trip, onCreate, onRevoke, onSetNotes }) {
             ? { backgroundColor: 'transparent', color: 'var(--navy)', border: '1px solid var(--navy-20)' }
             : { backgroundColor: 'var(--navy)', color: 'var(--cream)' }
         }
-        aria-expanded={open}
+        aria-haspopup="dialog"
       >
         <Icon name="link" size={12} />
         {busy ? 'Creating…' : url ? 'Shared' : 'Share'}
       </button>
 
+      {/* A real dialog rather than an inline panel: expanding in place pushed
+          the header around and resized the back button. */}
       {open && url && (
-        <div className="hub-card p-3 mt-2">
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={send}>Send link</Button>
-            <Button variant="ghost" onClick={copy}>
-              {copied ? 'Copied' : 'Copy link'}
-            </Button>
-          </div>
-
-          <button
-            onClick={() => onSetNotes(!trip.share_notes)}
-            className="flex items-start gap-2 mt-3 text-left"
-            aria-pressed={!!trip.share_notes}
-          >
-            <span
-              className="shrink-0 flex items-center justify-center"
-              style={{
-                width: '15px',
-                height: '15px',
-                marginTop: '1px',
-                borderRadius: '2px',
-                border: `1px solid ${trip.share_notes ? 'var(--navy)' : 'var(--navy-20)'}`,
-                backgroundColor: trip.share_notes ? 'var(--navy)' : 'transparent',
-                color: 'var(--cream)',
-                fontSize: '10px',
-                lineHeight: 1,
-              }}
-              aria-hidden="true"
-            >
-              {trip.share_notes ? '✓' : ''}
-            </span>
-            <span className="text-xs hub-muted leading-snug">
-              Include my notes
-              <span className="hub-faint"> — your comments on each place, and the
-              miscellaneous notes</span>
-            </span>
-          </button>
-
-          <p className="hub-faint text-xs mt-3 leading-relaxed">
-            The link stays live: anyone holding it sees this trip as you change it.
-          </p>
-          <button
-            onClick={async () => {
-              await onRevoke();
-              setOpen(false);
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Share this trip"
+          onClick={() => setOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 60,
+            backgroundColor: 'rgba(9, 32, 51, 0.45)',
+            backdropFilter: 'blur(2px)',
+            WebkitBackdropFilter: 'blur(2px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1.25rem',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: 'var(--cream)',
+              border: '1px solid var(--navy-20)',
+              borderRadius: '3px',
+              padding: '1.15rem',
+              width: '100%',
+              maxWidth: '360px',
+              boxShadow: '0 12px 40px rgba(9,32,51,0.28)',
             }}
-            className="hub-faint text-xs underline mt-1.5"
           >
-            Stop sharing
-          </button>
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <p className="hub-eyebrow mb-1">Share</p>
+                <p className="hub-display text-xl leading-tight">{trip.title}</p>
+              </div>
+              <button onClick={() => setOpen(false)} aria-label="Close" className="hub-faint shrink-0">
+                <Icon name="close" size={16} />
+              </button>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={send}>Send link</Button>
+              <button
+                onClick={copy}
+                className="px-4 py-2 text-sm font-medium rounded-sm inline-flex items-center gap-2"
+                style={{
+                  backgroundColor: 'transparent',
+                  color: 'var(--navy)',
+                  border: '1px solid var(--navy-20)',
+                }}
+              >
+                {copied ? (
+                  <>
+                    <span className="hub-tick" aria-hidden="true">
+                      <Icon name="check" size={15} />
+                    </span>
+                    Copied
+                  </>
+                ) : (
+                  'Copy link'
+                )}
+              </button>
+            </div>
+
+            <button
+              onClick={() => onSetNotes(!trip.share_notes)}
+              className="flex items-start gap-2 mt-4 text-left"
+              aria-pressed={!!trip.share_notes}
+            >
+              <span
+                className="shrink-0 flex items-center justify-center"
+                style={{
+                  width: '15px',
+                  height: '15px',
+                  marginTop: '1px',
+                  borderRadius: '2px',
+                  border: `1px solid ${trip.share_notes ? 'var(--navy)' : 'var(--navy-20)'}`,
+                  backgroundColor: trip.share_notes ? 'var(--navy)' : 'transparent',
+                  color: 'var(--cream)',
+                  fontSize: '10px',
+                  lineHeight: 1,
+                }}
+                aria-hidden="true"
+              >
+                {trip.share_notes ? '✓' : ''}
+              </span>
+              <span className="text-xs hub-muted leading-snug">
+                Include my notes
+                <span className="hub-faint"> — your comments on each place, and the
+                miscellaneous notes</span>
+              </span>
+            </button>
+
+            <div className="hub-rule mt-4 mb-3" />
+            <p className="hub-faint text-xs leading-relaxed">
+              The link stays live: anyone holding it sees this trip as you change it.
+            </p>
+            <button
+              onClick={async () => {
+                await onRevoke();
+                setOpen(false);
+              }}
+              className="hub-faint text-xs underline mt-1.5"
+            >
+              Stop sharing
+            </button>
+          </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
