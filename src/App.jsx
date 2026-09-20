@@ -1080,15 +1080,20 @@ function SharePanel({ trip, onCreate, onRevoke, onSetNotes }) {
       text: `${trip.title}, ${dateRange(trip.start_date, trip.end_date)}`,
       url,
     };
-    if (navigator.share) {
-      try {
-        await navigator.share(payload);
-        return;
-      } catch {
-        /* cancelled, or unsupported */
-      }
+
+    if (!navigator.share) {
+      copy();                       // desktop: no share sheet, so copy instead
+      return;
     }
-    copy();
+
+    try {
+      await navigator.share(payload);
+    } catch (err) {
+      // Backing out of the share sheet rejects with AbortError. That's not a
+      // failure, so don't quietly copy and flash the tick as if it were.
+      if (err && err.name === 'AbortError') return;
+      copy();                       // anything else: fall back to the clipboard
+    }
   }
 
   return (
