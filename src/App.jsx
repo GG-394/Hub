@@ -1098,20 +1098,29 @@ function SharePanel({ trip, onCreate, onRevoke, onSetNotes }) {
 
   return (
     <>
-      <button
-        onClick={onButton}
-        disabled={busy}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-sm disabled:opacity-40"
-        style={
-          url
-            ? { backgroundColor: 'transparent', color: 'var(--navy)', border: '1px solid var(--navy-20)' }
-            : { backgroundColor: 'var(--navy)', color: 'var(--cream)' }
-        }
-        aria-haspopup="dialog"
-      >
-        <Icon name="link" size={12} />
-        {busy ? 'Creating…' : url ? 'Shared' : 'Share'}
-      </button>
+      <span className="flex items-center gap-2.5 shrink-0">
+        {/* Revoking is a page-level action, not something to hunt for in a
+            dialog — and the filled button makes a live link obvious. */}
+        {url && (
+          <button onClick={onRevoke} className="hub-faint text-xs underline">
+            stop sharing
+          </button>
+        )}
+        <button
+          onClick={onButton}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-sm disabled:opacity-40"
+          style={
+            url
+              ? { backgroundColor: 'var(--navy)', color: 'var(--cream)' }
+              : { backgroundColor: 'transparent', color: 'var(--navy)', border: '1px solid var(--navy-20)' }
+          }
+          aria-haspopup="dialog"
+        >
+          <Icon name="link" size={12} />
+          {busy ? 'Creating…' : url ? 'Shared' : 'Share'}
+        </button>
+      </span>
 
       {/* A real dialog rather than an inline panel: expanding in place pushed
           the header around and resized the back button. */}
@@ -1213,15 +1222,6 @@ function SharePanel({ trip, onCreate, onRevoke, onSetNotes }) {
             <p className="hub-faint text-xs leading-relaxed">
               The link stays live: anyone holding it sees this trip as you change it.
             </p>
-            <button
-              onClick={async () => {
-                await onRevoke();
-                setOpen(false);
-              }}
-              className="hub-faint text-xs underline mt-1.5"
-            >
-              Stop sharing
-            </button>
           </div>
         </div>
       )}
