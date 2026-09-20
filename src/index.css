@@ -152,3 +152,34 @@ input[type='date']::-webkit-datetime-edit {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* The copy confirmation: the tick draws itself in, rather than the label
+   simply swapping to the word "Copied". */
+.hub-tick svg path {
+  stroke-dasharray: 26;
+  stroke-dashoffset: 26;
+  animation: hub-draw 320ms ease-out forwards;
+}
+
+.hub-tick {
+  display: inline-flex;
+  animation: hub-pop 320ms ease-out;
+}
+
+@keyframes hub-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes hub-pop {
+  0% {
+    transform: scale(0.6);
+  }
+  60% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
