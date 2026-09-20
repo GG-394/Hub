@@ -1070,6 +1070,7 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(trip.title);
   const [editingDates, setEditingDates] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [dateDraft, setDateDraft] = useState({
     start: trip.start_date || '',
     end: trip.end_date || '',
@@ -1173,6 +1174,70 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
 
     setEditingDates(false);
     await onReload();
+  }
+
+  const shareUrl = trip.share_token ? `${window.location.origin}/t/${trip.share_token}` : null;
+
+  async function startSharing() {
+    const token = crypto.randomUUID().replace(/-/g, '');   // 32 hex characters
+    const { error } = await supabase
+      .from('trips')
+      .update({ share_token: token, share_notes: false })
+      .eq('id', trip.id);
+    if (error) {
+      alert(`Couldn't create the link: ${error.message}`);
+      return;
+    }
+    await onReload();
+  }
+
+  async function stopSharing() {
+    if (!confirm('Stop sharing? Anyone with the old link will lose access.')) return;
+    const { error } = await supabase
+      .from('trips')
+      .update({ share_token: null })
+      .eq('id', trip.id);
+    if (error) {
+      alert(`Couldn't revoke the link: ${error.message}`);
+      return;
+    }
+    await onReload();
+  }
+
+  async function setShareNotes(next) {
+    const { error } = await supabase
+      .from('trips')
+      .update({ share_notes: next })
+      .eq('id', trip.id);
+    if (error) {
+      alert(`Couldn't change that: ${error.message}`);
+      return;
+    }
+    await onReload();
+  }
+
+  async function shareLink() {
+    if (!shareUrl) return;
+    const payload = {
+      title: `${trip.title} — Hub`,
+      text: `${trip.title}, ${dateRange(trip.start_date, trip.end_date)}`,
+      url: shareUrl,
+    };
+    if (navigator.share) {
+      try {
+        await navigator.share(payload);
+        return;
+      } catch {
+        // cancelled, or unavailable — fall through to the clipboard
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      alert(shareUrl);
+    }
   }
 
   async function saveNotes() {
@@ -1433,6 +1498,54 @@ function TripDetail({ trip, onReload, userId, knownCities }) {
             sortAlpha
             quickAdds={['Solo', 'Big group']}
           />
+        </div>
+
+        <div className="mb-3">
+          <p className="hub-eyebrow mb-1.5">Share</p>
+          {shareUrl ? (
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button onClick={shareLink}>{copied ? 'Link copied' : 'Send link'}</Button>
+                <button onClick={stopSharing} className="hub-faint text-xs underline">
+                  stop sharing
+                </button>
+              </div>
+              <p className="hub-faint text-xs mt-1.5 break-all">{shareUrl}</p>
+
+              <button
+                onClick={() => setShareNotes(!trip.share_notes)}
+                className="flex items-start gap-2 mt-2 text-left"
+                aria-pressed={!!trip.share_notes}
+              >
+                <span
+                  className="shrink-0 flex items-center justify-center"
+                  style={{
+                    width: '15px',
+                    height: '15px',
+                    marginTop: '1px',
+                    borderRadius: '2px',
+                    border: `1px solid ${trip.share_notes ? 'var(--navy)' : 'var(--navy-20)'}`,
+                    backgroundColor: trip.share_notes ? 'var(--navy)' : 'transparent',
+                    color: 'var(--cream)',
+                    fontSize: '10px',
+                    lineHeight: 1,
+                  }}
+                  aria-hidden="true"
+                >
+                  {trip.share_notes ? '✓' : ''}
+                </span>
+                <span className="text-xs hub-muted leading-snug">
+                  Include my notes
+                  <span className="hub-faint"> — your comments on each place, and the
+                  miscellaneous notes. Off by default.</span>
+                </span>
+              </button>
+            </div>
+          ) : (
+            <Button variant="ghost" onClick={startSharing}>
+              Create a read-only link
+            </Button>
+          )}
         </div>
 
         <div>
@@ -2454,6 +2567,238 @@ function Stats({ trips, onOpen }) {
 }
 
 /* ==========================================================================
+   Public trip — the read-only view behind a share link
+   ========================================================================== */
+
+/** A day rendered without any of the editing affordances. */
+function PublicDay({ day, prevCity, fallbackCity }) {
+  const items = [...(day.items || [])].sort((a, b) => a.sort_order - b.sort_order);
+  const roots = items.filter((i) => !i.parent_id);
+  const childrenOf = (id) => items.filter((i) => i.parent_id === id);
+  const cities = resolveItemCities(items, day.city || fallbackCity, prevCity);
+
+  const row = (item, depth) => {
+    const linked = item.mappable === true || !!item.maps_url;
+    const url = linked ? mapsUrl(item, cities.get(item.id) || day.city || fallbackCity) : null;
+    return (
+      <div
+        key={item.id}
+        style={
+          depth > 0
+            ? { marginLeft: '18px', paddingLeft: '10px', borderLeft: '1px solid var(--navy-10)' }
+            : undefined
+        }
+      >
+        <div className="flex gap-2 py-1 text-sm items-start">
+          <span className="hub-muted" style={{ marginTop: '2px' }}>
+            <Icon name={iconFor(item)} />
+          </span>
+          <span className="flex-1 min-w-0">
+            {url ? (
+              <a href={url} target="_blank" rel="noreferrer" className="underline decoration-dotted underline-offset-2">
+                {item.title}
+              </a>
+            ) : (
+              <span>{item.title}</span>
+            )}
+            {item.time_label && (
+              <span className="hub-faint text-xs ml-2 whitespace-nowrap">{item.time_label}</span>
+            )}
+            {item.notes && (
+              <span className="block hub-muted text-xs leading-snug mt-0.5 italic">{item.notes}</span>
+            )}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="mb-6">
+      <h2 className="text-sm font-semibold tracking-tight mb-1.5">
+        {dayHeading(day.date) || 'Untitled day'}
+        {day.city && <span className="hub-muted font-normal ml-2">{day.city}</span>}
+        {day.stay && (
+          <span className="hub-faint font-normal ml-2 inline-flex items-center gap-1">
+            <Icon name="stay" size={12} />
+            {day.stay_mappable ? (
+              <a
+                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                  [day.stay, day.city || fallbackCity].filter(Boolean).join(' ')
+                )}`}
+                target="_blank"
+                rel="noreferrer"
+                className="underline decoration-dotted underline-offset-2"
+              >
+                {day.stay}
+              </a>
+            ) : (
+              day.stay
+            )}
+          </span>
+        )}
+      </h2>
+      {roots.length === 0 ? (
+        <p className="hub-faint text-sm italic">Nothing planned.</p>
+      ) : (
+        roots.map((item) => (
+          <React.Fragment key={item.id}>
+            {row(item, 0)}
+            {childrenOf(item.id).map((c) => row(c, 1))}
+          </React.Fragment>
+        ))
+      )}
+    </div>
+  );
+}
+
+function PublicTrip({ token }) {
+  const [state, setState] = useState({ loading: true, trip: null, error: null });
+
+  useEffect(() => {
+    let cancelled = false;
+    supabase
+      .rpc('get_shared_trip', { token })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) setState({ loading: false, trip: null, error: error.message });
+        else setState({ loading: false, trip: data, error: data ? null : 'notfound' });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  useEffect(() => {
+    if (state.trip && state.trip.title) document.title = `${state.trip.title} — Hub`;
+  }, [state.trip]);
+
+  if (state.loading) return <Spinner label="Loading the itinerary" />;
+
+  if (!state.trip) {
+    return (
+      <div className="min-h-screen flex flex-col justify-center px-7 max-w-md mx-auto">
+        <Logo size={26} />
+        <h1 className="hub-display text-3xl mt-3 mb-2">Link not found</h1>
+        <p className="hub-muted text-sm leading-relaxed">
+          This itinerary isn't shared any more, or the link was mistyped.
+        </p>
+      </div>
+    );
+  }
+
+  const trip = state.trip;
+  const days = [...(trip.days || [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+  const nights = nightsBetween(trip.start_date, trip.end_date);
+  const places = tripPlaces(trip);
+
+  return (
+    <div className="min-h-screen" style={{ backgroundColor: 'var(--cream)' }}>
+      <div className="max-w-2xl mx-auto">
+        <div className="flex items-center gap-2 px-5 pt-4 pb-3" style={{ borderBottom: '1px solid var(--navy-10)' }}>
+          <Logo size={20} />
+          <span className="hub-display" style={{ fontSize: '17px', lineHeight: 1 }}>
+            Hub
+          </span>
+          <span className="hub-eyebrow ml-auto">Shared itinerary</span>
+        </div>
+
+        <div className="px-5 pt-5 pb-3">
+          <h1 className="hub-display text-3xl leading-tight mb-2 flex items-baseline gap-2.5 flex-wrap">
+            {trip.title}
+            <Flags trip={trip} size={20} />
+          </h1>
+          <div className="hub-muted text-xs space-y-1">
+            <div className="flex items-center gap-1.5">
+              <Icon name="calendar" size={12} />
+              <span>
+                {dateRange(trip.start_date, trip.end_date)}
+                {nights ? ` · ${nights} ${nights === 1 ? 'night' : 'nights'}` : ''}
+              </span>
+            </div>
+            {trip.companions && (
+              <div className="flex items-center gap-1.5">
+                <Icon name="people" size={12} />
+                <span>{trip.companions}</span>
+              </div>
+            )}
+          </div>
+          {places.length > 0 && (
+            <p className="text-xs mt-2.5 leading-relaxed hub-muted">{places.join(' · ')}</p>
+          )}
+        </div>
+
+        <div className="hub-rule mx-5 mb-4" />
+
+        <div className="px-5 pb-10">
+          {days.map((day, i) => (
+            <PublicDay
+              key={day.id}
+              day={day}
+              prevCity={i > 0 ? days[i - 1].city : null}
+              fallbackCity={trip.city || trip.title}
+            />
+          ))}
+
+          {trip.notes && (
+            <div className="mt-8">
+              <div className="hub-rule mb-4" />
+              <p className="hub-eyebrow mb-2">Notes</p>
+              <div className="text-sm leading-relaxed hub-muted space-y-1">
+                {trip.notes.split('\n').map((line, i) => {
+                  const bold = line.match(/^\*\*(.+)\*\*$/);
+                  if (bold) {
+                    return (
+                      <p key={i} className="hub-eyebrow mt-4 mb-1">
+                        {bold[1]}
+                      </p>
+                    );
+                  }
+                  const url = line.match(/https?:\/\/\S+/);
+                  if (url) {
+                    let host = url[0];
+                    try {
+                      host = new URL(url[0]).hostname.replace(/^www\./, '');
+                    } catch {
+                      host = url[0];
+                    }
+                    return (
+                      <p key={i} className="break-words">
+                        {line.slice(0, url.index).replace(/[-\s]+$/, '')}{' '}
+                        <a href={url[0]} target="_blank" rel="noreferrer" className="underline">
+                          {host}
+                        </a>
+                      </p>
+                    );
+                  }
+                  const indent = line.match(/^ */)[0].length;
+                  const body = line.replace(/^\s*/, '');
+                  const bulleted = /^[-\u2022*]\s*/.test(body);
+                  return (
+                    <p key={i} style={{ paddingLeft: `${(indent >= 2 ? 1 : 0) * 14 + (bulleted ? 12 : 0)}px` }}>
+                      {bulleted ? (
+                        <>
+                          <span className="hub-faint">· </span>
+                          {body.replace(/^[-\u2022*]\s*/, '')}
+                        </>
+                      ) : (
+                        body
+                      )}
+                    </p>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <p className="hub-faint text-xs mt-10">Shared from Hub</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ==========================================================================
    Shell
    ========================================================================== */
 
@@ -2731,11 +3076,14 @@ function AppInner() {
   );
 }
 
-export default function App() {
-  return (
-    <ErrorBoundary>
-      <AppInner />
-    </ErrorBoundary>
-  );
+/** /t/<token> is the public read-only view; everything else is the app. */
+function sharedToken() {
+  if (typeof window === 'undefined') return null;
+  const m = window.location.pathname.match(/^\/t\/([A-Za-z0-9_-]{16,})\/?$/);
+  return m ? m[1] : null;
 }
 
+export default function App() {
+  const token = sharedToken();
+  return <ErrorBoundary>{token ? <PublicTrip token={token} /> : <AppInner />}</ErrorBoundary>;
+}
