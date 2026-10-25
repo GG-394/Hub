@@ -2468,6 +2468,7 @@ function Stats({ trips, onOpen }) {
   const past = useMemo(() => trips.filter((t) => t.start_date <= todayISO()), [trips]);
   const [openYear, setOpenYear] = useState(null);
   const [openPerson, setOpenPerson] = useState(null);
+  const [openCountry, setOpenCountry] = useState(null);
   const [allPeople, setAllPeople] = useState(false);
 
   const stats = useMemo(() => {
@@ -2483,7 +2484,10 @@ function Stats({ trips, onOpen }) {
         perYear.get(y).trips += 1;
         perYear.get(y).nights += nightsBetween(t.start_date, t.end_date) || 0;
       }
-      countriesOf(t).forEach((c) => countries.set(c, (countries.get(c) || 0) + 1));
+      countriesOf(t).forEach((c) => {
+        if (!countries.has(c)) countries.set(c, []);
+        countries.get(c).push(t);
+      });
       nights += nightsBetween(t.start_date, t.end_date) || 0;
 
       (t.companions || '')
@@ -2498,7 +2502,9 @@ function Stats({ trips, onOpen }) {
 
     return {
       perYear: [...perYear.entries()].sort((a, b) => b[0] - a[0]),
-      countries: [...countries.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])),
+      countries: [...countries.entries()].sort(
+        (a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0])
+      ),
       people: [...people.entries()].sort(
         (a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0])
       ),
@@ -2639,21 +2645,51 @@ function Stats({ trips, onOpen }) {
 
       <div className="hub-rule mb-4" />
       <p className="hub-eyebrow mb-2">Countries</p>
+      <p className="hub-faint text-xs mb-2">Tap a country to see the trips.</p>
       <div className="text-sm leading-relaxed">
-        {stats.countries.map(([c, n], i) => (
-          <div
-            key={c}
-            className="flex items-center justify-between py-1"
-            // rule between rows only, so the list doesn't end on a stray line
-            style={i > 0 ? { borderTop: '1px solid var(--navy-10)' } : undefined}
-          >
-            <span className="flex items-center gap-2">
-              <Flag country={c} size={20} />
-              {c}
-            </span>
-            {n > 1 && <span className="hub-faint text-xs">×{n}</span>}
-          </div>
-        ))}
+        {stats.countries.map(([c, list], i) => {
+          const open = openCountry === c;
+          return (
+            <div
+              key={c}
+              // rule between rows only, so the list doesn't end on a stray line
+              style={i > 0 ? { borderTop: '1px solid var(--navy-10)' } : undefined}
+            >
+              <button
+                onClick={() => setOpenCountry(open ? null : c)}
+                className="w-full text-left flex items-center justify-between gap-3 py-1.5"
+                aria-expanded={open}
+              >
+                <span className="flex items-center gap-2">
+                  <Flag country={c} size={20} />
+                  {c}
+                </span>
+                <span className="hub-faint text-xs shrink-0">
+                  {list.length > 1 ? `×${list.length}` : ''}
+                </span>
+              </button>
+              {open && (
+                <div className="pl-7 pb-2">
+                  {[...list]
+                    .sort((x, y) => (y.start_date || '').localeCompare(x.start_date || ''))
+                    .map((t) => (
+                      <button
+                        key={t.id}
+                        onClick={() => onOpen(t)}
+                        className="w-full text-left flex items-baseline justify-between gap-3 py-1"
+                        style={{ borderTop: '1px solid var(--navy-10)' }}
+                      >
+                        <span className="text-sm">{t.title}</span>
+                        <span className="hub-faint text-xs shrink-0">
+                          {dateRange(t.start_date, t.end_date)}
+                        </span>
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       <div className="hub-rule mt-10 mb-4" />
